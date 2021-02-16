@@ -97,3 +97,10 @@ module = module_from_spec(spec_module)
 spec_module.loader.exec_module(module)
 # Execute a function from that module
 module.another_task()
+
+
+def test_name_func():
+    pass
+
+
+print(test_name_func.__name__)
