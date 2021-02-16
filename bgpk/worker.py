@@ -6,19 +6,16 @@ from collections import namedtuple
 import concurrent.futures as cf
 
 
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 PendingTask  = namedtuple('PendingTask' , ['id', 'event', 'args', 'status', 'response'])
 FinishedTask = namedtuple('FinishedTask' , ['id', 'event', 'args', 'status', 'response'])
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-print(BASE_DIR)
-
-
 class BGPKWorker:
 
-    def __init__(self, worker_dir=None):
+    def __init__(self, worker_dir=BASE_DIR):
         self.worker_dir = BGPKWorker.prep_worker_dir(worker_dir)
         self.con = sqlite3.connect(os.path.join(self.worker_dir, 'tasks.db'))
         self.con.execute("CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);")
@@ -29,7 +26,9 @@ class BGPKWorker:
     def prep_worker_dir(worker_dir):
         
         if not worker_dir: 
-            worker_dir = os.path.join(tempfile.gettempdir(), 'BGPKWorker')
+            worker_dir = os.path.join(tempfile.gettempdir(), '.BGPKWorker')
+        else:
+            worker_dir = os.path.join(worker_dir, '.BGPKWorker')
 
         if os.path.exists(worker_dir): 
             shutil.rmtree(worker_dir)
@@ -62,5 +61,7 @@ class BGPKWorker:
 
 
 
-            
+
+
+worker = BGPKWorker()       
         
