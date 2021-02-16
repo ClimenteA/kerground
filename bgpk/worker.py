@@ -3,6 +3,7 @@ import os, shutil
 import tempfile
 import uuid, pickle
 from collections import namedtuple
+from importlib.util import spec_from_file_location, module_from_spec
 
 import inspect
 import sys
@@ -69,6 +70,10 @@ class BGPKWorker:
         return task
     
     def send(self, event, *args):
+        
+        if not isinstance(event, str):
+            event = event.__name__
+
         task = PendingTask(str(uuid.uuid4()), event, args, 'pending', None)
         self.save_task(task)
         self.con.execute("INSERT INTO tasks (id, status) VALUES (?, ?);", (task.id, task.status))
@@ -79,6 +84,8 @@ class BGPKWorker:
         res = self.con.execute("SELECT status FROM tasks WHERE id = ?", (id,)).fetchone()
         return res[0]
 
+    
+
 
 
 worker = BGPKWorker()  
@@ -87,7 +94,6 @@ worker_file_path = "/home/acmt/Documents/background-worker/worker/other_folder/a
 
 
 
-from importlib.util import spec_from_file_location, module_from_spec
 
 
 module_name = os.path.basename(worker_file_path).split('.py')[0]
@@ -99,8 +105,9 @@ spec_module.loader.exec_module(module)
 module.another_task()
 
 
-def test_name_func():
-    pass
 
 
-print(test_name_func.__name__)
+# def test_name_func():
+#     pass
+
+# print(test_name_func.__name__)
