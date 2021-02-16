@@ -4,9 +4,9 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-flask = "*"
 
 [dev-packages]
+flask = "*"
 
 [requires]
 python_version = "3.8"
