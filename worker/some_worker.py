@@ -1,6 +1,4 @@
 import time
-from ..bgpk.worker import BGPKWorker
-
 
 
 def long_task():

@@ -10,11 +10,11 @@ import sys
 import concurrent.futures as cf
 
 
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PendingTask  = namedtuple('PendingTask' , ['id', 'event', 'args', 'status', 'response'])
 FinishedTask = namedtuple('FinishedTask' , ['id', 'event', 'args', 'status', 'response'])
+
 
 
 class BGPKWorker:
@@ -90,19 +90,19 @@ class BGPKWorker:
 
 worker = BGPKWorker()  
 
-worker_file_path = "/home/acmt/Documents/background-worker/worker/other_folder/another_worker.py"
+# worker_file_path = "/home/acmt/Documents/background-worker/worker/other_folder/another_worker.py"
 
 
 
 
 
-module_name = os.path.basename(worker_file_path).split('.py')[0]
-spec_module = spec_from_file_location(module_name, worker_file_path)
-module = module_from_spec(spec_module)
-# Import the module
-spec_module.loader.exec_module(module)
-# Execute a function from that module
-module.another_task()
+# module_name = os.path.basename(worker_file_path).split('.py')[0]
+# spec_module = spec_from_file_location(module_name, worker_file_path)
+# module = module_from_spec(spec_module)
+# # Import the module
+# spec_module.loader.exec_module(module)
+# # Execute a function from that module
+# module.another_task()
 
 
 
