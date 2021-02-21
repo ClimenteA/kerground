@@ -29,7 +29,6 @@ class BGPKWorker:
     def __init__(self, worker_dir=BASE_DIR):
         
         self.worker_dir = BGPKWorker.prep_worker_dir(worker_dir)
-        self.events = {}
         self.events = self.gather_events()
         self.con = sqlite3.connect(os.path.join(self.worker_dir, 'tasks.db'))
         self.con.execute("CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);")
@@ -65,7 +64,8 @@ class BGPKWorker:
 
 
     def gather_events(self):
-
+        
+        events = {}
         events_gathered = []
         for root, dirs, files in os.walk(BASE_DIR): 
             for file in files:
@@ -79,7 +79,7 @@ class BGPKWorker:
                     spec, module, func_names = BGPKWorker.get_module_data(file_path)
                     file_id = str(uuid.uuid5(uuid.NAMESPACE_OID, file_path))
 
-                    self.events.update({
+                    events.update({
                         file_id: {
                             'file_path': file_path,
                             'spec': spec,
@@ -94,6 +94,10 @@ class BGPKWorker:
         duplicate_events = [x for n, x in enumerate(events_gathered) if x in events_gathered[:n]]
         if duplicate_events:
             raise Exception(f"Function names from worker files must be unique!\nCheck function(s): {', '.join(duplicate_events)}")
+        
+        print(events_gathered)
+
+        return events
 
 
     def save_task(self, task):
@@ -135,14 +139,22 @@ class BGPKWorker:
             ftask = None
             for _, data in self.events.items():
                 if task.event in data['events']:
-                    data['spec'].loader.exec_module(data['module']) # import module
-                    response = eval(f"{data['module']}.{task.event}")(task.args) # execute func
+                    
+                    # import module
+                    data['spec'].loader.exec_module(data['module']) 
+                
+                    # execute func
+                    if task.args: 
+                        response = getattr(data['module'], task.event)(task.args) 
+                    else: 
+                        response = getattr(data['module'], task.event)()
+
                     ftask = FinishedTask(id, task.event, task.args, 'done', response)
                     break
 
             if not ftask: raise Exception(f'Event "{task.event}" with id "{id}" not found!')
             self.save_task(ftask)
-    
+
             self.con.execute("UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id))
             self.con.commit()
 
@@ -157,43 +169,3 @@ class BGPKWorker:
 
             self.save_task(ftask)
 
-
-
-
-    
-
-
-
-worker = BGPKWorker()  
-
-# worker.execute(id)
-
-
-# worker_file_path = "/home/acmt/Documents/background-worker/worker/other_folder/another_worker.py"
-
-# Load
-
-# def 
-# module_name = os.path.basename(worker_file_path).split('.py')[0]
-# spec = spec_from_file_location(module_name, worker_file_path)
-# module = module_from_spec(spec)
-# spec.loader.exec_module(module)
-# func_names = [f[0] for f in getmembers(module, isfunction)]
-
-# return spec_module, module, func_names
-
-
-# Execute
-# Import the module
-# spec_module.loader.exec_module(module)
-# Execute a function from that module
-# eval('module.another_task')()
-
-
-# print("list of funcs:", func_names)
-
-
-# def test_name_func():
-#     pass
-
-# print(test_name_func.__name__)

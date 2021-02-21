@@ -1,3 +1,7 @@
 {
-    "python.pythonPath": "/home/acmt/.virtualenvs/background-worker-mX8QR2DD/bin/python"
+    "python.pythonPath": "/home/acmt/.virtualenvs/background-worker-mX8QR2DD/bin/python",
+    "python.analysis.extraPaths": [
+        "/home/acmt/Documents/background-worker/dispacher",
+        "/home/acmt/Documents/background-worker/worker"
+    ]
 }
