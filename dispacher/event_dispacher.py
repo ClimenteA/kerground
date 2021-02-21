@@ -4,7 +4,8 @@ def sending_an_event():
     # worker.send(another_task)
     # or 
     id = worker.send('another_task')
-    worker.execute(id)
+    res = worker.execute(id)
+    print(res)
     
     
 

@@ -15,16 +15,22 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PendingTask  = namedtuple('PendingTask' , ['id', 'event', 'args', 'status', 'response'])
 FinishedTask = namedtuple('FinishedTask' , ['id', 'event', 'args', 'status', 'response'])
 
-worker_funcs = {}
 
 class BGPKWorker:
+    """
+        How it works:
+        - Initialize this class
+
+        Events are string function names
+        worker.send('func_name') will append func to background processing
+
+    """
 
     def __init__(self, worker_dir=BASE_DIR):
         
         self.worker_dir = BGPKWorker.prep_worker_dir(worker_dir)
-        
-        BGPKWorker.get_workers()
-        
+        self.events = {}
+        self.events = self.gather_events()
         self.con = sqlite3.connect(os.path.join(self.worker_dir, 'tasks.db'))
         self.con.execute("CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);")
         self.con.commit()
@@ -46,9 +52,19 @@ class BGPKWorker:
 
         return worker_dir
 
-
     @staticmethod
-    def get_workers():
+    def get_module_data(file_path):
+
+        module_name = os.path.basename(file_path).split('.py')[0]
+        spec = spec_from_file_location(module_name, file_path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        func_names = [f[0] for f in getmembers(module, isfunction)]
+
+        return spec, module, func_names
+
+
+    def gather_events(self):
 
         for root, dirs, files in os.walk(BASE_DIR): 
             for file in files:
@@ -59,12 +75,15 @@ class BGPKWorker:
                 ):
                     
                     file_path = os.path.join(root, file)
+                    spec, module, func_names = BGPKWorker.get_module_data(file_path)
                     file_id = str(uuid.uuid5(uuid.NAMESPACE_OID, file_path))
 
-                    worker_funcs.update({
+                    self.events.update({
                         file_id: {
-                            'worker_path': file_path,
-
+                            'file_path': file_path,
+                            'spec': spec,
+                            'module': module,
+                            'events': func_names
                         }
                     })
 
@@ -102,34 +121,25 @@ class BGPKWorker:
 
         try:
 
+            ftask = None
+            for _, data in self.events.items():
+                if task.event in data['events']:
+                    data['spec'].loader.exec_module(data['module']) # import module
+                    response = eval(f"{data['module']}.{task.event}")(task.args) # execute func
+                    ftask = FinishedTask(id, task.event, task.args, 'done', response)
+                    break
 
-            # response = task.func(*task.args)
-            # ftask = FinishedTask(id, task.func, task.args, 'done', response)
+            if not ftask: raise Exception(f'Event "{task.event}" with id "{id}" not found!')
+            self.save_task(ftask)
+    
+            self.con.execute("UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id))
+            self.con.commit()
 
-            task.event
-
-            print(task.event)
-
-            # str(uuid.uuid5(uuid.NAMESPACE_OID, worker_file_path)
-            # module_name = os.path.basename(worker_file_path).split('.py')[0]
-            # spec_module = spec_from_file_location(module_name, worker_file_path)
-            # module = module_from_spec(spec_module)
-            
-            # # Import the module
-            # spec_module.loader.exec_module(module)
-            # # Execute a function from that module
-            # module.another_task()
-            # from inspect import getmembers, isfunction
-            # list_of_functions = getmembers(module, isfunction)
-
-            
-            # self.con.execute("UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id))
-            # self.con.commit()
-        
-            # return response
+            return response
 
         except:
-            ftask = FinishedTask(id, task.func, task.args, 'failed', traceback.format_exc())
+
+            ftask = FinishedTask(id, task.event, task.args, 'failed', traceback.format_exc())
             
             self.con.execute("UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id))
             self.con.commit()
@@ -145,22 +155,22 @@ class BGPKWorker:
 
 worker = BGPKWorker()  
 
-
 # worker.execute(id)
 
 
-worker_file_path = "/home/acmt/Documents/background-worker/worker/other_folder/another_worker.py"
+# worker_file_path = "/home/acmt/Documents/background-worker/worker/other_folder/another_worker.py"
 
 # Load
-# str(uuid.uuid5(uuid.NAMESPACE_OID, worker_file_path)
-module_name = os.path.basename(worker_file_path).split('.py')[0]
-spec_module = spec_from_file_location(module_name, worker_file_path)
-module = module_from_spec(spec_module)
-spec_module.loader.exec_module(module)
-func_names = [f[0] for f in getmembers(module, isfunction)]
 
+# def 
+# module_name = os.path.basename(worker_file_path).split('.py')[0]
+# spec = spec_from_file_location(module_name, worker_file_path)
+# module = module_from_spec(spec)
+# spec.loader.exec_module(module)
+# func_names = [f[0] for f in getmembers(module, isfunction)]
 
-# spec_module, module, func_names
+# return spec_module, module, func_names
+
 
 # Execute
 # Import the module
@@ -169,7 +179,7 @@ func_names = [f[0] for f in getmembers(module, isfunction)]
 # eval('module.another_task')()
 
 
-print("list of funcs:", func_names)
+# print("list of funcs:", func_names)
 
 
 # def test_name_func():
