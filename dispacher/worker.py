@@ -5,7 +5,7 @@ import uuid, pickle
 from collections import namedtuple
 from importlib.util import spec_from_file_location, module_from_spec
 from inspect import getmembers, isfunction
-
+import itertools
 import sys, traceback
 import concurrent.futures as cf
 
@@ -66,6 +66,7 @@ class BGPKWorker:
 
     def gather_events(self):
 
+        events_gathered = []
         for root, dirs, files in os.walk(BASE_DIR): 
             for file in files:
                 if (
@@ -87,6 +88,13 @@ class BGPKWorker:
                         }
                     })
 
+                    events_gathered.append(func_names)
+
+        events_gathered = list(itertools.chain.from_iterable(events_gathered))
+        duplicate_events = [x for n, x in enumerate(events_gathered) if x in events_gathered[:n]]
+        if duplicate_events:
+            raise Exception(f"Function names from worker files must be unique!\nCheck function(s): {', '.join(duplicate_events)}")
+
 
     def save_task(self, task):
         with open(os.path.join(self.worker_dir, f'{task.id}.pickle'), 'wb') as pkl:
@@ -99,8 +107,11 @@ class BGPKWorker:
     
     def send(self, event, *args):
         
-        if not isinstance(event, str):
+        if isfunction(event):
             event = event.__name__
+
+        if not isinstance(event, str): 
+            raise Exception("Event must be a string or function!")
 
         task = PendingTask(str(uuid.uuid4()), event, args, 'pending', None)
         self.save_task(task)
