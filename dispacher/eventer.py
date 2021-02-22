@@ -1,11 +1,9 @@
-from worker import BGPKWorker
+from bgpk_worker import BGPKWorker
 
 worker = BGPKWorker()
 
 
 def sending_an_event():
-    # worker.send(another_task)
-    # or 
     id = worker.send('another_task')
     res = worker.execute(id)
     print(res)
@@ -23,3 +21,8 @@ def sending_another_event():
 
 sending_an_event()
 # sending_another_event()
+
+
+import os
+
+print(os.environ.get("BGPK_worker_dir"))
