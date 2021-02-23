@@ -1,11 +1,14 @@
+import time
 import sqlite3
-import os, shutil
-import tempfile
+import os, sys, shutil
+import logging
 import uuid, pickle
 import itertools, traceback
 from collections import namedtuple
 from importlib.util import spec_from_file_location, module_from_spec
 from inspect import getmembers, isfunction
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+import argparse
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,55 +23,59 @@ class BGPKWorker:
         - Initialize this class
         `from bgpk import BGPKWorker`
         `worker = BGPKWorker()`
-    
+
         Events are string function names
         `worker.send('func_name')` will append func to background processing
 
     """
 
-    def __init__(self, worker_dir=BASE_DIR, persist_data=True, _skip_dirs_creation=False):
+    def __init__(self, worker_dir=BASE_DIR, persist_data=True):
         
         # TODO add timeout's, cron_jobs
-        self.worker_dir = BGPKWorker.prep_worker_dir(worker_dir, persist_data, _skip_dirs_creation)
+        self.worker_dir = BGPKWorker.prep_worker_dir(worker_dir, persist_data)
         self.events = self.gather_events()
         self.con = sqlite3.connect(os.path.join(self.worker_dir, 'tasks.db'))
         self.con.execute("CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);")
         self.con.commit()
 
     # @property - works with init values...
-    @classmethod    
-    def pending(cls): 
-        return cls().tasks_by_status('pending')
+    def pending(self): 
+        return self.tasks_by_status('pending')
     
-    @classmethod    
-    def running(cls): 
-        return cls().tasks_by_status('running')
+    def running(self): 
+        return self.tasks_by_status('running')
 
-    @classmethod
-    def finished(cls): 
-        return cls().tasks_by_status('finished')
+    def finished(self): 
+        return self.tasks_by_status('finished')
 
-    @classmethod
-    def failed(cls): 
-        return cls().tasks_by_status('failed')
+    def failed(self): 
+        return self.tasks_by_status('failed')
         
-
     def tasks_by_status(self, status):
         res = self.con.execute("SELECT id FROM tasks WHERE status = ?", (status,)).fetchall()
         res = [r[0] for r in res]
         return res
 
     @staticmethod
-    def prep_worker_dir(worker_dir, persist_data, _skip_dirs_creation):
+    def prep_worker_dir(worker_dir, persist_data):
+
+        env_worker_dir = os.environ.get("BACKGROUND_WORKER_STORAGE")
         
-        if _skip_dirs_creation:
-            return os.environ.get("BGPK_worker_dir")
+        if (
+            env_worker_dir and worker_dir
+            and
+            env_worker_dir != worker_dir
+        ):
+            raise Exception("Every instance of this class can have only one `worker_dir`!")
 
-        if not worker_dir: 
-            worker_dir = os.path.join(tempfile.gettempdir(), '.BGPKWorker')
+
+        if env_worker_dir:
+            worker_dir = env_worker_dir
         else:
+            # logging.warning(env_worker_dir)
             worker_dir = os.path.join(worker_dir, '.BGPKWorker')
-
+            os.environ["BACKGROUND_WORKER_STORAGE"] = worker_dir
+        
         if not persist_data:
             shutil.rmtree(worker_dir)
             os.mkdir(worker_dir)
@@ -76,7 +83,7 @@ class BGPKWorker:
         if not os.path.exists(worker_dir):
             os.mkdir(worker_dir)
 
-        os.environ["BGPK_worker_dir"] = worker_dir
+        # logging.warning(worker_dir)
 
         return worker_dir
 
@@ -156,6 +163,7 @@ class BGPKWorker:
         res = self.con.execute("SELECT status FROM tasks WHERE id = ?", (id,)).fetchone()
         return res[0]
 
+
     def execute(self, id):
         
         task = self.load_task(id)
@@ -198,3 +206,44 @@ class BGPKWorker:
             self.save_task(ftask)
 
 
+
+
+class BGPKExecutor(BGPKWorker): 
+
+    def __init__(self):
+        super().__init__()
+
+
+    @classmethod
+    def run(cls):
+        w = cls()
+        print("pending tasks:", w.pending())
+        # print("running tasks:", w.running())
+        # print("finished tasks:", w.finished())
+        # print("failed tasks:", w.failed())
+
+        while True:
+            pending_tasks = w.pending()  
+            if not pending_tasks: time.sleep(1) 
+            logging.warning('pending_tasks: ' + str(pending_tasks))
+            for task in pending_tasks:
+                w.execute(task)
+
+
+        
+        # with ProcessPoolExecutor() as executor:
+        #     pass
+
+
+
+if __name__ == '__main__':   
+
+    # parser = argparse.ArgumentParser(usage="\n\n --persist-data --worker-path /path/to/background-task/worker")
+    # parser.add_argument('--persist-data', type=bool, nargs='False', default=False, help="If you want to keep background tasks after shutdown")
+    # parser.add_argument('--worker-path', type=str, default=BASE_DIR, help="Path to where you want to keep background worker data, default is BASE_DIR")
+    # args = parser.parse_args()
+    # logging.warning(args)
+
+    BGPKExecutor.run()
+    
+    
