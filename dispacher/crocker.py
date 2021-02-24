@@ -17,26 +17,57 @@ PendingTask  = namedtuple('PendingTask' , ['id', 'event', 'args', 'status', 'res
 FinishedTask = namedtuple('FinishedTask' , ['id', 'event', 'args', 'status', 'response'])
 
 
-class BGPKWorker:
+class Crocker:
     """
         How it works:
         - Initialize this class
-        `from bgpk import BGPKWorker`
-        `worker = BGPKWorker()`
+        `from crocker import Crocker`
+        `c = Crocker()`
 
         Events are string function names
-        `worker.send('func_name')` will append func to background processing
+        `c.send('func_name')` will append func to background processing
 
     """
 
-    def __init__(self, worker_dir=BASE_DIR, persist_data=True):
+    def __init__(self, worker_dir=None, persist_data=True):
         
         # TODO add timeout's, cron_jobs
-        self.worker_dir = BGPKWorker.prep_worker_dir(worker_dir, persist_data)
+        self.worker_dir = Crocker.prep_worker_dir(worker_dir, persist_data)
         self.events = self.gather_events()
-        self.con = sqlite3.connect(os.path.join(self.worker_dir, 'tasks.db'))
-        self.con.execute("CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);")
-        self.con.commit()
+        self.sqlpath = os.path.join(self.worker_dir, 'tasks.db')
+        self.create_db()
+
+
+    def execute_sql(self, sql):
+        
+        select_statement = False
+        if isinstance(sql, tuple):
+            if sql[0].upper().startswith("SELECT"): 
+                select_statement = True 
+                 
+        try:
+            with sqlite3.connect(self.sqlpath) as conn:
+                if select_statement:
+                    res = conn.execute(sql).fetchall()
+                    res = [r[0] for r in res]
+                else:
+                    res = conn.execute(sql)
+
+            return res
+        except:
+            logging.warning('[ERROR] ' + str(sql))
+            logging.warning(traceback.format_exc())
+            
+
+    def create_db(self):
+        sql_statement = "CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);"
+        self.execute_sql(sql_statement)
+
+    def tasks_by_status(self, status):
+        sql_statement = f"SELECT id FROM tasks WHERE status = {status}"
+        res = self.execute_sql(sql_statement)
+        return res
+
 
     # @property - works with init values...
     def pending(self): 
@@ -51,30 +82,18 @@ class BGPKWorker:
     def failed(self): 
         return self.tasks_by_status('failed')
         
-    def tasks_by_status(self, status):
-        res = self.con.execute("SELECT id FROM tasks WHERE status = ?", (status,)).fetchall()
-        res = [r[0] for r in res]
-        return res
 
     @staticmethod
     def prep_worker_dir(worker_dir, persist_data):
 
-        env_worker_dir = os.environ.get("BACKGROUND_WORKER_STORAGE")
-        
-        if (
-            env_worker_dir and worker_dir
-            and
-            env_worker_dir != worker_dir
-        ):
-            raise Exception("Every instance of this class can have only one `worker_dir`!")
-
+        env_worker_dir = os.environ.get("BACKGROUND_CROCKER_STORAGE")
 
         if env_worker_dir:
             worker_dir = env_worker_dir
         else:
             # logging.warning(env_worker_dir)
-            worker_dir = os.path.join(worker_dir, '.BGPKWorker')
-            os.environ["BACKGROUND_WORKER_STORAGE"] = worker_dir
+            worker_dir = os.path.join(BASE_DIR, '.Crocker')
+            os.environ["BACKGROUND_CROCKER_STORAGE"] = worker_dir
         
         if not persist_data:
             shutil.rmtree(worker_dir)
@@ -87,6 +106,7 @@ class BGPKWorker:
 
         return worker_dir
 
+        
     @staticmethod
     def get_module_data(file_path):
 
@@ -112,7 +132,7 @@ class BGPKWorker:
                 ):
                     
                     file_path = os.path.join(root, file)
-                    spec, module, func_names = BGPKWorker.get_module_data(file_path)
+                    spec, module, func_names = Crocker.get_module_data(file_path)
                     file_id = str(uuid.uuid5(uuid.NAMESPACE_OID, file_path))
 
                     events.update({
@@ -155,20 +175,23 @@ class BGPKWorker:
 
         task = PendingTask(str(uuid.uuid4()), event, args, 'pending', None)
         self.save_task(task)
-        self.con.execute("INSERT INTO tasks (id, status) VALUES (?, ?);", (task.id, task.status))
-        self.con.commit()
+
+        sql_statement = "INSERT INTO tasks (id, status) VALUES (?, ?);", (task.id, task.status,)
+        self.execute_sql(sql_statement)
+        
         return task.id
 
     def status(self, id):
-        res = self.con.execute("SELECT status FROM tasks WHERE id = ?", (id,)).fetchone()
-        return res[0]
+        sql_statement = f"SELECT status FROM tasks WHERE id = {id}"
+        res = self.execute_sql(sql_statement)
+        return res[0][0]
 
 
     def execute(self, id):
         
         task = self.load_task(id)
-        self.con.execute("UPDATE tasks SET status = ? WHERE id = ?;", ("running", id))
-        self.con.commit()
+        sql_statement = f"UPDATE tasks SET status = {'running'} WHERE id = {id};"
+        self.execute_sql(sql_statement)
 
         try:
 
@@ -191,8 +214,8 @@ class BGPKWorker:
             if not ftask: raise Exception(f'Event "{task.event}" with id "{id}" not found!')
             self.save_task(ftask)
 
-            self.con.execute("UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id))
-            self.con.commit()
+            sql_statement = f"UPDATE tasks SET status = {ftask.status} WHERE id = {ftask.id};"
+            self.execute_sql(sql_statement)
 
             return response
 
@@ -200,15 +223,15 @@ class BGPKWorker:
 
             ftask = FinishedTask(id, task.event, task.args, 'failed', traceback.format_exc())
             
-            self.con.execute("UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id))
-            self.con.commit()
+            sql_statement = f"UPDATE tasks SET status = {ftask.status} WHERE id = {ftask.id};"
+            self.execute_sql(sql_statement)
 
             self.save_task(ftask)
 
 
 
 
-class BGPKExecutor(BGPKWorker): 
+class CrockerRunner(Crocker): 
 
     def __init__(self):
         super().__init__()
@@ -217,33 +240,32 @@ class BGPKExecutor(BGPKWorker):
     @classmethod
     def run(cls):
         w = cls()
-        print("pending tasks:", w.pending())
-        # print("running tasks:", w.running())
-        # print("finished tasks:", w.finished())
-        # print("failed tasks:", w.failed())
-
         while True:
             pending_tasks = w.pending()  
-            if not pending_tasks: time.sleep(1) 
             logging.warning('pending_tasks: ' + str(pending_tasks))
-            for task in pending_tasks:
-                w.execute(task)
+
+            if pending_tasks:
+                with ProcessPoolExecutor() as executor:
+                    for task, response in zip(pending_tasks, executor.map(cls().execute, pending_tasks)):
+                        logging.warning(f'[EXECUTED] {task}:{response}')
+            else:
+                time.sleep(1)
+                        
 
 
         
-        # with ProcessPoolExecutor() as executor:
-        #     pass
-
-
 
 if __name__ == '__main__':   
 
-    # parser = argparse.ArgumentParser(usage="\n\n --persist-data --worker-path /path/to/background-task/worker")
+    # parser = argparse.ArgumentParser(usage="\n\n --persist-data --Crocker-path /path/to/background-task/Crocker")
     # parser.add_argument('--persist-data', type=bool, nargs='False', default=False, help="If you want to keep background tasks after shutdown")
-    # parser.add_argument('--worker-path', type=str, default=BASE_DIR, help="Path to where you want to keep background worker data, default is BASE_DIR")
+    # parser.add_argument('--Crocker-path', type=str, default=BASE_DIR, help="Path to where you want to keep background Crocker data, default is BASE_DIR")
     # args = parser.parse_args()
     # logging.warning(args)
 
-    BGPKExecutor.run()
+
+    logging.warning("BACKGROUND_CROCKER_STORAGE: " + os.environ.get("BACKGROUND_CROCKER_STORAGE", "Not set"))
+
+    CrockerRunner.run()
     
     

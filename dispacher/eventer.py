@@ -1,7 +1,7 @@
 import os
-from bgpk_worker import BGPKWorker
+from crocker import Crocker
 
-worker = BGPKWorker()
+worker = Crocker()
 
 
 def sending_an_event():
