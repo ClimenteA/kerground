@@ -13,8 +13,8 @@ import argparse
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-PendingTask  = namedtuple('PendingTask' , ['id', 'event', 'args', 'status', 'response'])
-FinishedTask = namedtuple('FinishedTask' , ['id', 'event', 'args', 'status', 'response'])
+PendingTask  = namedtuple("PendingTask" , ["id", "event", "args", "status", "response"])
+FinishedTask = namedtuple("FinishedTask" , ["id", "event", "args", "status", "response"])
 
 
 class Crocker:
@@ -25,37 +25,37 @@ class Crocker:
         `c = Crocker()`
 
         Events are string function names
-        `c.send('func_name')` will append func to background processing
+        `c.send("func_name")` will append func to background processing
 
     """
 
     def __init__(self, worker_dir=None, persist_data=True):
         
-        # TODO add timeout's, cron_jobs
+        # TODO add timeout"s, cron_jobs
         self.worker_dir = Crocker.prep_worker_dir(worker_dir, persist_data)
         self.events = self.gather_events()
-        self.sqlpath = os.path.join(self.worker_dir, 'tasks.db')
+        self.sqlpath = os.path.join(self.worker_dir, "tasks.db")
         self.create_db()
 
 
     def execute_sql(self, sql):
         
-        select_statement = False
-        if isinstance(sql, tuple):
-            if sql[0].upper().startswith("SELECT"): 
-                select_statement = True 
-                 
         try:
             with sqlite3.connect(self.sqlpath) as conn:
-                if select_statement:
-                    res = conn.execute(sql).fetchall()
-                    res = [r[0] for r in res]
-                else:
+                if isinstance(sql, tuple):
+                    if sql[0].upper().startswith("SELECT"):
+                        res = conn.execute(sql[0], sql[1]).fetchall()
+                        res = [r[0] for r in res]
+                    else:
+                        res = conn.execute(sql[0], sql[1])
+                elif isinstance(sql, str): 
                     res = conn.execute(sql)
+                else:
+                    raise ValueError("SQL statement must be either a string or a tuple(sql, and params)!")
 
             return res
         except:
-            logging.warning('[ERROR] ' + str(sql))
+            logging.warning("[ERROR] " + str(sql))
             logging.warning(traceback.format_exc())
             
 
@@ -63,24 +63,24 @@ class Crocker:
         sql_statement = "CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);"
         self.execute_sql(sql_statement)
 
-    def tasks_by_status(self, status):
-        sql_statement = f"SELECT id FROM tasks WHERE status = {status}"
+    def tasks_by_status(self, status: str):
+        sql_statement = "SELECT id FROM tasks WHERE status = ?;", (status,)
         res = self.execute_sql(sql_statement)
         return res
 
 
     # @property - works with init values...
     def pending(self): 
-        return self.tasks_by_status('pending')
+        return self.tasks_by_status("pending")
     
     def running(self): 
-        return self.tasks_by_status('running')
+        return self.tasks_by_status("running")
 
     def finished(self): 
-        return self.tasks_by_status('finished')
+        return self.tasks_by_status("finished")
 
     def failed(self): 
-        return self.tasks_by_status('failed')
+        return self.tasks_by_status("failed")
         
 
     @staticmethod
@@ -92,7 +92,7 @@ class Crocker:
             worker_dir = env_worker_dir
         else:
             # logging.warning(env_worker_dir)
-            worker_dir = os.path.join(BASE_DIR, '.Crocker')
+            worker_dir = os.path.join(BASE_DIR, ".Crocker")
             os.environ["BACKGROUND_CROCKER_STORAGE"] = worker_dir
         
         if not persist_data:
@@ -110,7 +110,7 @@ class Crocker:
     @staticmethod
     def get_module_data(file_path):
 
-        module_name = os.path.basename(file_path).split('.py')[0]
+        module_name = os.path.basename(file_path).split(".py")[0]
         spec = spec_from_file_location(module_name, file_path)
         module = module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -137,10 +137,10 @@ class Crocker:
 
                     events.update({
                         file_id: {
-                            'file_path': file_path,
-                            'spec': spec,
-                            'module': module,
-                            'events': func_names
+                            "file_path": file_path,
+                            "spec": spec,
+                            "module": module,
+                            "events": func_names
                         }
                     })
 
@@ -149,7 +149,7 @@ class Crocker:
         events_gathered = list(itertools.chain.from_iterable(events_gathered))
         duplicate_events = [x for n, x in enumerate(events_gathered) if x in events_gathered[:n]]
         if duplicate_events:
-            raise Exception(f"Function names from worker files must be unique!\nCheck function(s): {', '.join(duplicate_events)}")
+            raise Exception(f"Function names from worker files must be unique!\nCheck function(s): {','.join(duplicate_events)}")
         
         # print(events_gathered)
 
@@ -157,11 +157,11 @@ class Crocker:
 
 
     def save_task(self, task):
-        with open(os.path.join(self.worker_dir, f'{task.id}.pickle'), 'wb') as pkl:
+        with open(os.path.join(self.worker_dir, f"{task.id}.pickle"), "wb") as pkl:
             pickle.dump(task, pkl)  
 
     def load_task(self, id):
-        with open(os.path.join(self.worker_dir, f'{id}.pickle'), 'rb') as pkl:
+        with open(os.path.join(self.worker_dir, f"{id}.pickle"), "rb") as pkl:
             task = pickle.load(pkl)
         return task
     
@@ -173,7 +173,7 @@ class Crocker:
         if not isinstance(event, str): 
             raise Exception("Event must be a string or function!")
 
-        task = PendingTask(str(uuid.uuid4()), event, args, 'pending', None)
+        task = PendingTask(str(uuid.uuid4()), event, args, "pending", None)
         self.save_task(task)
 
         sql_statement = "INSERT INTO tasks (id, status) VALUES (?, ?);", (task.id, task.status,)
@@ -182,7 +182,7 @@ class Crocker:
         return task.id
 
     def status(self, id):
-        sql_statement = f"SELECT status FROM tasks WHERE id = {id}"
+        sql_statement = "SELECT status FROM tasks WHERE id = ?;", (id,)
         res = self.execute_sql(sql_statement)
         return res[0][0]
 
@@ -190,40 +190,40 @@ class Crocker:
     def execute(self, id):
         
         task = self.load_task(id)
-        sql_statement = f"UPDATE tasks SET status = {'running'} WHERE id = {id};"
+        sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", ("running", id,)
         self.execute_sql(sql_statement)
 
         try:
 
             ftask = None
             for _, data in self.events.items():
-                if task.event in data['events']:
+                if task.event in data["events"]:
                     
                     # import module
-                    data['spec'].loader.exec_module(data['module']) 
+                    data["spec"].loader.exec_module(data["module"]) 
                 
                     # execute func
                     if task.args: 
-                        response = getattr(data['module'], task.event)(task.args) 
+                        response = getattr(data["module"], task.event)(task.args) 
                     else: 
-                        response = getattr(data['module'], task.event)()
+                        response = getattr(data["module"], task.event)()
 
-                    ftask = FinishedTask(id, task.event, task.args, 'finished', response)
+                    ftask = FinishedTask(id, task.event, task.args, "finished", response)
                     break
 
             if not ftask: raise Exception(f'Event "{task.event}" with id "{id}" not found!')
             self.save_task(ftask)
 
-            sql_statement = f"UPDATE tasks SET status = {ftask.status} WHERE id = {ftask.id};"
+            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id,)
             self.execute_sql(sql_statement)
 
             return response
 
         except:
 
-            ftask = FinishedTask(id, task.event, task.args, 'failed', traceback.format_exc())
+            ftask = FinishedTask(id, task.event, task.args, "failed", traceback.format_exc())
             
-            sql_statement = f"UPDATE tasks SET status = {ftask.status} WHERE id = {ftask.id};"
+            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id,)
             self.execute_sql(sql_statement)
 
             self.save_task(ftask)
@@ -242,12 +242,12 @@ class CrockerRunner(Crocker):
         w = cls()
         while True:
             pending_tasks = w.pending()  
-            logging.warning('pending_tasks: ' + str(pending_tasks))
+            logging.warning("pending_tasks: " + str(pending_tasks))
 
             if pending_tasks:
                 with ProcessPoolExecutor() as executor:
                     for task, response in zip(pending_tasks, executor.map(cls().execute, pending_tasks)):
-                        logging.warning(f'[EXECUTED] {task}:{response}')
+                        logging.warning(f"[EXECUTED] {task}:{response}")
             else:
                 time.sleep(1)
                         
@@ -255,11 +255,11 @@ class CrockerRunner(Crocker):
 
         
 
-if __name__ == '__main__':   
+if __name__ == "__main__":   
 
     # parser = argparse.ArgumentParser(usage="\n\n --persist-data --Crocker-path /path/to/background-task/Crocker")
-    # parser.add_argument('--persist-data', type=bool, nargs='False', default=False, help="If you want to keep background tasks after shutdown")
-    # parser.add_argument('--Crocker-path', type=str, default=BASE_DIR, help="Path to where you want to keep background Crocker data, default is BASE_DIR")
+    # parser.add_argument("--persist-data", type=bool, nargs="False", default=False, help="If you want to keep background tasks after shutdown")
+    # parser.add_argument("--Crocker-path", type=str, default=BASE_DIR, help="Path to where you want to keep background Crocker data, default is BASE_DIR")
     # args = parser.parse_args()
     # logging.warning(args)
 
