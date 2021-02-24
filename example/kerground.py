@@ -17,22 +17,62 @@ PendingTask  = namedtuple("PendingTask" , ["id", "event", "args", "status", "res
 FinishedTask = namedtuple("FinishedTask" , ["id", "event", "args", "status", "response"])
 
 
-class Crocker:
+class Kerground:
     """
         How it works:
-        - Initialize this class
-        `from crocker import Crocker`
-        `c = Crocker()`
 
-        Events are string function names
-        `c.send("func_name")` will append func to background processing
+        - Create a file like `my_worker.py` (must end in `_worker.py`)
+        - Start adding functions (these will be our events)
+        
+        ```py
+        # my_worker.py
+
+        def long_task(params):
+            # some work 
+            return
+
+        def another_long_task():
+            # some work 
+            return
+
+        ```
+        - Function names listed in worker files must be unique
+        - Next, create another file let's say `my_api.py` (a file that sends 'events')
+        
+        ```py
+        # my_api.py
+        import Webframeork
+        from kerground import Kerground
+
+        # You instantiate `Kerground` class in one place and import `wk` in your bluprints/route files.
+        wk = Kerground() 
+
+        @app.post("/long-task")
+        def long_task():
+            id = wk.send('long_task', *requests.params)
+            # you will receive an id which you can use howerver you want
+            # here we send it to frontend to ask later if task is done
+            return {'status': 'request received please wait', 'id': id}, 200
+
+        @app.post("/long-task/<id>")
+        def long_task():
+            status = wk.status(id)
+            return {'status': 'success', 'results': results}, 200
+
+        ```
+                
+        By default data needed by kerground will be stored in the package base path.
+        Optionally you can set `KERGROUND_STORAGE` environment variable to another path 
+        and that path will be used instead.
+
+        
 
     """
 
-    def __init__(self, worker_dir=None, persist_data=True):
+    def __init__(self, worker_dir=None, persist_data=False):
         
         # TODO add timeout"s, cron_jobs
-        self.worker_dir = Crocker.prep_worker_dir(worker_dir, persist_data)
+        self.worker_dir = Kerground.prep_worker_dir(worker_dir, persist_data)
         self.events = self.gather_events()
         self.sqlpath = os.path.join(self.worker_dir, "tasks.db")
         self.create_db()
@@ -52,7 +92,6 @@ class Crocker:
                     res = conn.execute(sql)
                 else:
                     raise ValueError("SQL statement must be either a string or a tuple(sql, and params)!")
-
             return res
         except:
             logging.warning("[ERROR] " + str(sql))
@@ -69,41 +108,30 @@ class Crocker:
         return res
 
 
-    # @property - works with init values...
-    def pending(self): 
-        return self.tasks_by_status("pending")
-    
-    def running(self): 
-        return self.tasks_by_status("running")
-
-    def finished(self): 
-        return self.tasks_by_status("finished")
-
-    def failed(self): 
-        return self.tasks_by_status("failed")
+    def pending(self) : return self.tasks_by_status("pending")
+    def running(self) : return self.tasks_by_status("running")
+    def finished(self): return self.tasks_by_status("finished")
+    def failed(self)  : return self.tasks_by_status("failed")
         
 
     @staticmethod
     def prep_worker_dir(worker_dir, persist_data):
 
-        env_worker_dir = os.environ.get("BACKGROUND_CROCKER_STORAGE")
+        env_worker_dir = os.environ.get("KERGROUND_STORAGE")
 
         if env_worker_dir:
             worker_dir = env_worker_dir
         else:
-            # logging.warning(env_worker_dir)
-            worker_dir = os.path.join(BASE_DIR, ".Crocker")
-            os.environ["BACKGROUND_CROCKER_STORAGE"] = worker_dir
-        
-        if not persist_data:
-            shutil.rmtree(worker_dir)
-            os.mkdir(worker_dir)
+            worker_dir = os.path.join(BASE_DIR, ".Kerground")
+            os.environ["KERGROUND_STORAGE"] = worker_dir
         
         if not os.path.exists(worker_dir):
             os.mkdir(worker_dir)
 
-        # logging.warning(worker_dir)
-
+        if not persist_data:
+            shutil.rmtree(worker_dir)
+            os.mkdir(worker_dir)
+        
         return worker_dir
 
         
@@ -125,14 +153,10 @@ class Crocker:
         events_gathered = []
         for root, dirs, files in os.walk(BASE_DIR): 
             for file in files:
-                if (
-                    file.endswith("_worker.py")
-                    or
-                    file.startswith("worker_") and file.endswith(".py")
-                ):
-                    
+                if file.endswith("_worker.py"):
+
                     file_path = os.path.join(root, file)
-                    spec, module, func_names = Crocker.get_module_data(file_path)
+                    spec, module, func_names = Kerground.get_module_data(file_path)
                     file_id = str(uuid.uuid5(uuid.NAMESPACE_OID, file_path))
 
                     events.update({
@@ -165,6 +189,7 @@ class Crocker:
             task = pickle.load(pkl)
         return task
     
+
     def send(self, event, *args):
         
         if isfunction(event):
@@ -184,11 +209,10 @@ class Crocker:
     def status(self, id):
         sql_statement = "SELECT status FROM tasks WHERE id = ?;", (id,)
         res = self.execute_sql(sql_statement)
-        return res[0][0]
+        return res[0] if res else "id not found"
 
 
     def execute(self, id):
-        
         task = self.load_task(id)
         sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", ("running", id,)
         self.execute_sql(sql_statement)
@@ -231,7 +255,7 @@ class Crocker:
 
 
 
-class CrockerRunner(Crocker): 
+class KergroundRunner(Kerground): 
 
     def __init__(self):
         super().__init__()
@@ -246,10 +270,15 @@ class CrockerRunner(Crocker):
 
             if pending_tasks:
                 with ProcessPoolExecutor() as executor:
-                    for task, response in zip(pending_tasks, executor.map(cls().execute, pending_tasks)):
-                        logging.warning(f"[EXECUTED] {task}:{response}")
+                    # Sync
+                    for task in pending_tasks:
+                        executor.submit(w.execute(task))
+                    
+                    # Async - Module can't be pickled error..
+                    # for task, response in zip(pending_tasks, executor.map(w.execute, pending_tasks)):
+                    #     logging.warning(f"[EXECUTED] {task}:{response}")
             else:
-                time.sleep(1)
+                time.sleep(0.5)
                         
 
 
@@ -257,15 +286,15 @@ class CrockerRunner(Crocker):
 
 if __name__ == "__main__":   
 
-    # parser = argparse.ArgumentParser(usage="\n\n --persist-data --Crocker-path /path/to/background-task/Crocker")
+    # parser = argparse.ArgumentParser()
     # parser.add_argument("--persist-data", type=bool, nargs="False", default=False, help="If you want to keep background tasks after shutdown")
-    # parser.add_argument("--Crocker-path", type=str, default=BASE_DIR, help="Path to where you want to keep background Crocker data, default is BASE_DIR")
+    # parser.add_argument("--Crocker-path", type=str, default=BASE_DIR, help="Path to where you want to keep background data, default is BASE_DIR")
     # args = parser.parse_args()
     # logging.warning(args)
 
 
-    logging.warning("BACKGROUND_CROCKER_STORAGE: " + os.environ.get("BACKGROUND_CROCKER_STORAGE", "Not set"))
+    logging.warning("KERGROUND_STORAGE: " + os.environ.get("KERGROUND_STORAGE", "Not set"))
 
-    CrockerRunner.run()
+    KergroundRunner.run()
     
     
