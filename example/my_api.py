@@ -1,7 +1,7 @@
 from flask import Flask
-from kerground import Kerground
 
-k = Kerground()
+from kerground import ker
+
 
 app = Flask(__name__)
 
@@ -12,27 +12,28 @@ def index():
     return {"routes": route_list}
 
 
-@app.route('/long-task')
+@app.route('/add-long-task')
 def long_task_adder():
-    id = k.send('long_task', "params")
+    id = ker.send('long_task', "params")
     # you will receive an id which you can use howerver you want
     # here we send it to frontend to ask later if task is done
     return {'id': id}
 
 
+@app.route('/status')
 @app.route('/status/<id>')
-def long_task_status(id):
-    return {'status': k.status(id)}
+def long_task_status(id=None):
+    
+    if id:
+        return {'status': ker.status(id)}
 
+    return {
+        'pending': ker.pending(),
+        'running': ker.running(),
+        'finished': ker.finished(),
+        'failed': ker.failed()
+    }
 
-@app.route('/tasks-stats')
-def tasks_stats():
-    return {'stats': {
-        'pending': k.pending(),
-        'running': k.running(),
-        'finished': k.finished(),
-        'failed': k.failed()
-    }}
 
 
 

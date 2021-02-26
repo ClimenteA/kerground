@@ -10,6 +10,9 @@ from inspect import getmembers, isfunction
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import argparse
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -69,10 +72,10 @@ class Kerground:
 
     """
 
-    def __init__(self, worker_dir=None, persist_data=False):
+    def __init__(self):
         
         # TODO add timeout"s, cron_jobs
-        self.worker_dir = Kerground.prep_worker_dir(worker_dir, persist_data)
+        self.worker_dir = Kerground.prep_worker_dir()
         self.events = self.gather_events()
         self.sqlpath = os.path.join(self.worker_dir, "tasks.db")
         self.create_db()
@@ -115,24 +118,38 @@ class Kerground:
         
 
     @staticmethod
-    def prep_worker_dir(worker_dir, persist_data):
+    def prep_worker_dir(persist_data):
 
         env_worker_dir = os.environ.get("KERGROUND_STORAGE")
 
-        if env_worker_dir:
-            worker_dir = env_worker_dir
-        else:
-            worker_dir = os.path.join(BASE_DIR, ".Kerground")
-            os.environ["KERGROUND_STORAGE"] = worker_dir
-        
-        if not os.path.exists(worker_dir):
-            os.mkdir(worker_dir)
+        if not env_worker_dir: 
+            raise Exception("KERGROUND_STORAGE not set in '.env'")
 
-        if not persist_data:
-            shutil.rmtree(worker_dir)
-            os.mkdir(worker_dir)
+        if not os.path.exists(env_worker_dir):
+            os.mkdir(env_worker_dir)
+    
+        return env_worker_dir
+
+
+        # if env_worker_dir:
+        #     worker_dir = env_worker_dir
+        #     logging.warning(f"KERGROUND_STORAGE path found in environment variables.")
+        # else:
+        #     logging.warning(f"KERGROUND_STORAGE path not found, using by default\n{BASE_DIR}")
+        #     worker_dir = os.path.join(BASE_DIR, ".Kerground")
+        #     os.environ["KERGROUND_STORAGE"] = worker_dir
         
-        return worker_dir
+        # if not os.path.exists(worker_dir):
+        #     logging.warning(f"Creating KERGROUND_STORAGE path:\n{worker_dir}")
+        #     os.mkdir(worker_dir)
+
+        # if not persist_data:
+        #     logging.warning(f"Removing previous data from path:\n{worker_dir}")
+        #     shutil.rmtree(worker_dir)
+        #     os.mkdir(worker_dir)
+        
+        # logging.warning(f"\n\nKERGROUND READY!\n")
+        # return worker_dir
 
         
     @staticmethod
@@ -180,15 +197,22 @@ class Kerground:
         return events
 
 
-    def save_task(self, task):
-        with open(os.path.join(self.worker_dir, f"{task.id}.pickle"), "wb") as pkl:
+    def save(self, task):
+        save_path = os.path.join(self.worker_dir, f"{task.id}.pickle")
+        with open(save_path, "wb") as pkl:
             pickle.dump(task, pkl)  
+        # logging.warning(f"New task added:\n{save_path}")
 
-    def load_task(self, id):
-        with open(os.path.join(self.worker_dir, f"{id}.pickle"), "rb") as pkl:
+    def load(self, id):
+        save_path = os.path.join(self.worker_dir, f"{id}.pickle")
+        with open(save_path, "rb") as pkl:
             task = pickle.load(pkl)
+        # logging.warning(f"Task loaded:\n{save_path}")
         return task
     
+    def get_response(self, id):
+        task = self.load(id)
+        return task.response
 
     def send(self, event, *args):
         
@@ -199,7 +223,7 @@ class Kerground:
             raise Exception("Event must be a string or function!")
 
         task = PendingTask(str(uuid.uuid4()), event, args, "pending", None)
-        self.save_task(task)
+        self.save(task)
 
         sql_statement = "INSERT INTO tasks (id, status) VALUES (?, ?);", (task.id, task.status,)
         self.execute_sql(sql_statement)
@@ -213,7 +237,7 @@ class Kerground:
 
 
     def execute(self, id):
-        task = self.load_task(id)
+        task = self.load(id)
         sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", ("running", id,)
         self.execute_sql(sql_statement)
 
@@ -236,7 +260,7 @@ class Kerground:
                     break
 
             if not ftask: raise Exception(f'Event "{task.event}" with id "{id}" not found!')
-            self.save_task(ftask)
+            self.save(ftask)
 
             sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id,)
             self.execute_sql(sql_statement)
@@ -250,51 +274,35 @@ class Kerground:
             sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id,)
             self.execute_sql(sql_statement)
 
-            self.save_task(ftask)
+            self.save(ftask)
 
 
-
-
-class KergroundRunner(Kerground): 
-
-    def __init__(self):
-        super().__init__()
-
-
-    @classmethod
-    def run(cls):
-        w = cls()
+    def run(self):
         while True:
-            pending_tasks = w.pending()  
+            pending_tasks = self.pending()  
+            if not pending_tasks: 
+                time.sleep(1)
+                continue
+
             logging.warning("pending_tasks: " + str(pending_tasks))
 
-            if pending_tasks:
-                with ProcessPoolExecutor() as executor:
-                    # Sync
-                    for task in pending_tasks:
-                        executor.submit(w.execute(task))
-                    
-                    # Async - Module can't be pickled error..
-                    # for task, response in zip(pending_tasks, executor.map(w.execute, pending_tasks)):
-                    #     logging.warning(f"[EXECUTED] {task}:{response}")
-            else:
-                time.sleep(0.5)
-                        
+            with ProcessPoolExecutor() as executor:
+                # Sync
+                [executor.submit(self.execute(task)) for task in pending_tasks]
+    
 
 
-        
+
+
+ker = Kerground()
+
 
 if __name__ == "__main__":   
 
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--persist-data", type=bool, nargs="False", default=False, help="If you want to keep background tasks after shutdown")
-    # parser.add_argument("--Crocker-path", type=str, default=BASE_DIR, help="Path to where you want to keep background data, default is BASE_DIR")
-    # args = parser.parse_args()
-    # logging.warning(args)
+    if "run" in sys.argv:
+        logging.warning("\n\nKERGROUND READY\n\n")
+        ker.run()
+    else:
+        raise Exception("Type `python3 kerground.py run`")
 
-
-    logging.warning("KERGROUND_STORAGE: " + os.environ.get("KERGROUND_STORAGE", "Not set"))
-
-    KergroundRunner.run()
-    
     
