@@ -21,57 +21,7 @@ FinishedTask = namedtuple("FinishedTask" , ["id", "event", "args", "status", "re
 
 
 class Kerground:
-    """
-        How it works:
-
-        - Create a file like `my_worker.py` (must end in `_worker.py`)
-        - Start adding functions (these will be our events)
-        
-        ```py
-        # my_worker.py
-
-        def long_task(params):
-            # some work 
-            return
-
-        def another_long_task():
-            # some work 
-            return
-
-        ```
-        - Function names listed in worker files must be unique
-        - Next, create another file let's say `my_api.py` (a file that sends 'events')
-        
-        ```py
-        # my_api.py
-        import Webframeork
-        from kerground import Kerground
-
-        # You instantiate `Kerground` class in one place and import `wk` in your bluprints/route files.
-        wk = Kerground() 
-
-        @app.post("/long-task")
-        def long_task():
-            id = wk.send('long_task', *requests.params)
-            # you will receive an id which you can use howerver you want
-            # here we send it to frontend to ask later if task is done
-            return {'status': 'request received please wait', 'id': id}, 200
-
-        @app.post("/long-task/<id>")
-        def long_task():
-            status = wk.status(id)
-            return {'status': 'success', 'results': results}, 200
-
-        ```
-                
-        By default data needed by kerground will be stored in the package base path.
-        Optionally you can set `KERGROUND_STORAGE` environment variable to another path 
-        and that path will be used instead.
-
-        
-
-    """
-
+    
     def __init__(self):
         
         # TODO add timeout"s, cron_jobs
@@ -83,23 +33,19 @@ class Kerground:
 
     def execute_sql(self, sql):
         
-        try:
-            with sqlite3.connect(self.sqlpath) as conn:
-                if isinstance(sql, tuple):
-                    if sql[0].upper().startswith("SELECT"):
-                        res = conn.execute(sql[0], sql[1]).fetchall()
-                        res = [r[0] for r in res]
-                    else:
-                        res = conn.execute(sql[0], sql[1])
-                elif isinstance(sql, str): 
-                    res = conn.execute(sql)
+        with sqlite3.connect(self.sqlpath) as conn:
+            if isinstance(sql, tuple):
+                if sql[0].upper().startswith("SELECT"):
+                    res = conn.execute(sql[0], sql[1]).fetchall()
+                    res = [r[0] for r in res]
                 else:
-                    raise ValueError("SQL statement must be either a string or a tuple(sql, and params)!")
-            return res
-        except:
-            logging.warning("[ERROR] " + str(sql))
-            logging.warning(traceback.format_exc())
-            
+                    res = conn.execute(sql[0], sql[1])
+            elif isinstance(sql, str): 
+                res = conn.execute(sql)
+            else:
+                raise ValueError("SQL statement must be either a string or a tuple(sql, and params)!")
+        return res
+        
 
     def create_db(self):
         sql_statement = "CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);"
@@ -118,7 +64,7 @@ class Kerground:
         
 
     @staticmethod
-    def prep_worker_dir(persist_data):
+    def prep_worker_dir():
 
         env_worker_dir = os.environ.get("KERGROUND_STORAGE")
 
@@ -131,27 +77,6 @@ class Kerground:
         return env_worker_dir
 
 
-        # if env_worker_dir:
-        #     worker_dir = env_worker_dir
-        #     logging.warning(f"KERGROUND_STORAGE path found in environment variables.")
-        # else:
-        #     logging.warning(f"KERGROUND_STORAGE path not found, using by default\n{BASE_DIR}")
-        #     worker_dir = os.path.join(BASE_DIR, ".Kerground")
-        #     os.environ["KERGROUND_STORAGE"] = worker_dir
-        
-        # if not os.path.exists(worker_dir):
-        #     logging.warning(f"Creating KERGROUND_STORAGE path:\n{worker_dir}")
-        #     os.mkdir(worker_dir)
-
-        # if not persist_data:
-        #     logging.warning(f"Removing previous data from path:\n{worker_dir}")
-        #     shutil.rmtree(worker_dir)
-        #     os.mkdir(worker_dir)
-        
-        # logging.warning(f"\n\nKERGROUND READY!\n")
-        # return worker_dir
-
-        
     @staticmethod
     def get_module_data(file_path):
 
