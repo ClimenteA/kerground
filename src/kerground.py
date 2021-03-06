@@ -235,14 +235,14 @@ def cli():
         prog="kerground", description="Run kerground background worker."
     ) 
 
-    # parser.add_argument(
-    #     "--workers-path", type=str, default=".", 
-    #     help="Path to *_worker.py files from which events will be collected."
-    # )
-    # parser.add_argument(
-    #     "--storage-path", type=str, default=".", 
-    #     help="Path needed to store kerground files."
-    # )
+    parser.add_argument(
+        "--workers-path", type=str, default=".", 
+        help="Path to *_worker.py files from which events will be collected."
+    )
+    parser.add_argument(
+        "--storage-path", type=str, default=".", 
+        help="Path needed to store kerground files."
+    )
     
     args = parser.parse_args()
     
