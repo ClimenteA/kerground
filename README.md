@@ -1,4 +1,6 @@
 # kerground 
+[![Downloads](https://pepy.tech/badge/kerground)](https://pepy.tech/project/kerground) [![PyPI](https://img.shields.io/pypi/v/kerground?color=blue)](https://pypi.org/project/kerground/)
+
 Background worker based on pickle and sqlite3.
 
 
@@ -91,3 +93,6 @@ ker.events_collected
 
 Under the hood kerground uses pickle for serialization of input/output data, a combination of `inspect` methods and built-in `getattr` function for dynamically calling the `"events"`(functions) from `*_worker.py` files. 
 It's **resource frendly** (it doesn't use RAM to hold queue), **easy to use** (import kerground, mark your worker files with `_worker.py` prefix and you are set), **has hot reload for workers** (no need to restart workers each time you make a change).
+
+
+**Submit any questions/issues you have! Fell free to fork it and improve it!**
