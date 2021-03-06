@@ -32,6 +32,7 @@ def long_wait():
 
 **Your api's and workers must be in the same package/directory**
 
+```bash
 root
 ├── api
 │   ├── __init__.py
@@ -39,6 +40,7 @@ root
 └── worker
     ├── __init__.py
     └── my_worker.py
+```
 
 
 **Open 2 cmd/terminal windows in the example directory:**
