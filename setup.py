@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-# python setup.py bdist_wheel sdist
+# python3 setup.py bdist_wheel sdist
 # cd dist
 # twine upload *
 
@@ -18,7 +18,7 @@ setup(
     author_email="climente.alin@gmail.com",
     license="MIT",
     py_modules=["kerground"],
-    install_requires=["python-dotenv"],
+    install_requires=[],
     packages=find_packages(),
     long_description=long_description,
     long_description_content_type="text/markdown",

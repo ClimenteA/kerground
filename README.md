@@ -1,61 +1,74 @@
 # kerground 
-Simple background worker based on pickle and sqlite3.
+Background worker based on pickle and sqlite3.
+
 
 ## Quickstart
-- TODO
 
-In the `example` directory you have a minimal api setup with kerground background worker.
+**Install**
 
-- cd in example folder and start the api 
-- ![start-flask](pics/start-flask.gif)
-
-- start kerground background worker
-- ![kerground-start](pics/kerground-start.gif)
-
-- you will see a `.Kerground` folder created with a sqlite db which will keep track of our background tasks statuses 
-- ![folder-structure](pics/folder-structure.gif)
-
-- start sending tasks to kerground (you will see the id of that task returned)
-- ![add-tasks](pics/add-tasks.gif)
-
-- in `.Kerground` folder you will see the tasks added
-- ![tasks-added](pics/tasks-added.gif)
-
-- we can take a look at the statuses of the tasks send
-- ![statuses](pics/statuses.gif)
+```py
+pip install kerground
+```
 
 
-## How it works
+**Mark your file workers by naming them with `_worker.py` prefix**
+```py
+my_worker.py
+```
+Kerground will look in `*_worker.py` and will consider each function an event (similar to pytest).
 
-Both the worker and the api must be on the same network. Other background workers use Redis/other for sending longer tasks to a background worker, but kerground uses just Python.
-
-Add a `.env` file and specify a path where you want to hold `kerground` data. Similar to Redis based background workers which use an IP for connection we use a system path where both the worker and the api have access.
-
-In `.env` file set `KERGROUND_STORAGE=".Kerground"`, `.Kerground` folder will be created if not present.
-
-
-Mark your worker files with `_worker.py` suffix. Kerground will look in `*_worker.py` files and consider all functions events.
-
-In your api files import kerground instance like this: 
+**Import `kerground` instance in your api/views/dispacher and start sending events**
 
 ```py
 from kerground import ker
 
-@app.route('/add-long-task')
-def long_task_adder():
-    # Start adding "events" in your views
-    id = ker.send('long_task', *args) 
+@app.route('/some-task')
+def long_wait():
+    id = ker.send('long_task')
+                # ^^^^^^^^^^^ this is a function name from *_worker.py files
     return {'id': id}
-```
-Here we send the event `long_task` to the kerground backround worker.
-`ker.send('long_task', *args)` - `long_task` is a function from our `*_worker.py` files.
-For easy debugging you can import `long_task` function from your worker file. 
 
-When you send an event you will receive back an `id` which you can use to check it's status.
-```py
-ker.status(id) # will return: pending | running | finished | failed
 ```
-These will return a list of tasks with the requested status
+
+**Your api's and workers must be in the same package/directory**
+
+root
+├── api
+│   ├── __init__.py
+│   └── my_api.py
+└── worker
+    ├── __init__.py
+    └── my_worker.py
+
+
+**Open 2 cmd/terminal windows in the example directory:**
+- in one start your api `python3 api/my_api.py`
+- in the other one type `kerground`
+
+![kerground_example.gif](pics/kerground_example.gif)
+
+You are free to use any folder structure. 
+
+
+## API
+
+
+### `ker.send('func_name', *args)` 
+
+Send event to kerground worker (you can also import the function from worker file and pass it to send method). `send` function will return the id of the task sent to the worker. 
+
+You have **hot reload** on your workers by default! (`send` calls the function dinamically from worker files).
+
+
+### `ker.status(id)` 
+
+Check status of a task with `status`. Kerground has the folowing statuses:
+- pending  - event is added to kerground queue
+- running  - event is running
+- finished - event was executed succesfully
+- failed   - event failed to be executed
+
+Also you can check at any time the statuses of your tasks without specifing the id's:
 ```py
 ker.pending() 
 ker.running()
@@ -63,14 +76,16 @@ ker.finished()
 ker.failed()
 ```
 
-Also, you can get the response of that event(function)
+### `ker.get_response(id)`
+
+Get the response from event (will be `None` if event didn't ran yet).
+
+You can see functions collected from `*_worker.py` files with:
 ```py
-res = ker.get_response(id) # will return: Response | None if not finished yet | Traceback with the error got
+ker.events_collected
 ```
-**You have hot reload by default for your workers**, functions are called by their name with `getattr`. Only if you change the worker function name then you will need to restart kerground. You don't need to worry about RAM, kerground it's a file based background worker.
 
+## Why
 
-#TODO
-- add timeouts
-- add a cleanup feature
-- add cron jobs
+Under the hood kerground uses pickle for serialization of input/output data, a combination of `inspect` methods and built-in `getattr` function for dynamically calling the `"events"`(functions) from `*_worker.py` files. 
+It's **resource frendly** (it doesn't use RAM to hold queue), **easy to use** (import kerground, mark your worker files with `_worker.py` prefix and you are set), **has hot reload for workers** (no need to restart workers each time you make a change).

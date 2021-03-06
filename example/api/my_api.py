@@ -1,7 +1,7 @@
 from flask import Flask
 from kerground import ker
-from dotenv import load_dotenv
-load_dotenv()
+
+
 
 app = Flask(__name__)
 

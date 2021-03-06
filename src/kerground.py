@@ -10,11 +10,6 @@ from inspect import getmembers, isfunction
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import argparse
 
-from dotenv import load_dotenv
-load_dotenv()
-
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PendingTask  = namedtuple("PendingTask" , ["id", "event", "args", "status", "response"])
 FinishedTask = namedtuple("FinishedTask" , ["id", "event", "args", "status", "response"])
@@ -22,16 +17,73 @@ FinishedTask = namedtuple("FinishedTask" , ["id", "event", "args", "status", "re
 
 class Kerground:
     
-    def __init__(self):
-        
-        # TODO add timeout"s, cron_jobs
-        self.worker_dir = Kerground.prep_worker_dir()
-        self.events = self.gather_events()
-        self.sqlpath = os.path.join(self.worker_dir, "tasks.db")
+    def __init__(self, workers_path=None, storage_path=None):
+
+        if not workers_path:
+            workers_path = os.getenv("KERGROUND_WORKERS_PATH")
+        if not storage_path:
+            storage_path = os.getenv("KERGROUND_STORAGE_PATH")
+            
+        if not workers_path or storage_path:
+            workers_path = os.getcwd()
+            storage_path = os.getcwd()
+
+
+        # TODO add timeout's, cron_jobs
+        self.ker_dir = Kerground.prep_storage_dir(storage_path)
+        self.events, self.events_collected = Kerground.collect_events(workers_path)
         self.create_db()
 
 
+    @staticmethod
+    def prep_storage_dir(storage_path):
+
+        if ".Kerground" not in storage_path:
+            storage_path = os.path.join(storage_path, ".Kerground")
+
+        if not os.path.exists(storage_path):
+            os.mkdir(storage_path)
+
+        return storage_path
+
+
+    @staticmethod
+    def collect_events(workers_path):
+
+        events = {}
+        events_collected = []
+        for root, dirs, files in os.walk(workers_path): 
+            for file in files:
+                if file.endswith("_worker.py"):
+
+                    file_path = os.path.join(root, file)
+                    spec, module, func_names = Kerground.get_module_data(file_path)
+                    file_id = str(uuid.uuid5(uuid.NAMESPACE_OID, file_path))
+
+                    events.update({
+                        file_id: {
+                            "file_path": file_path,
+                            "spec": spec,
+                            "module": module,
+                            "events": func_names
+                        }
+                    })
+
+                    events_collected.append(func_names)
+
+        events_collected = list(itertools.chain.from_iterable(events_collected))
+        duplicate_events = [x for n, x in enumerate(events_collected) if x in events_collected[:n]]
+        if duplicate_events:
+            raise Exception(f"Function names from worker files must be unique!\nCheck function(s): {','.join(duplicate_events)}")
+        
+        # print(events_gathered)
+
+        return events, events_collected
+
+
     def execute_sql(self, sql):
+
+        self.sqlpath = os.path.join(self.ker_dir, "tasks.db")
         
         with sqlite3.connect(self.sqlpath) as conn:
             if isinstance(sql, tuple):
@@ -64,20 +116,6 @@ class Kerground:
         
 
     @staticmethod
-    def prep_worker_dir():
-
-        env_worker_dir = os.environ.get("KERGROUND_STORAGE")
-
-        if not env_worker_dir: 
-            raise Exception("KERGROUND_STORAGE not set in '.env'")
-
-        if not os.path.exists(env_worker_dir):
-            os.mkdir(env_worker_dir)
-    
-        return env_worker_dir
-
-
-    @staticmethod
     def get_module_data(file_path):
 
         module_name = os.path.basename(file_path).split(".py")[0]
@@ -88,48 +126,14 @@ class Kerground:
 
         return spec, module, func_names
 
-
-    def gather_events(self):
-        
-        events = {}
-        events_gathered = []
-        for root, dirs, files in os.walk(BASE_DIR): 
-            for file in files:
-                if file.endswith("_worker.py"):
-
-                    file_path = os.path.join(root, file)
-                    spec, module, func_names = Kerground.get_module_data(file_path)
-                    file_id = str(uuid.uuid5(uuid.NAMESPACE_OID, file_path))
-
-                    events.update({
-                        file_id: {
-                            "file_path": file_path,
-                            "spec": spec,
-                            "module": module,
-                            "events": func_names
-                        }
-                    })
-
-                    events_gathered.append(func_names)
-
-        events_gathered = list(itertools.chain.from_iterable(events_gathered))
-        duplicate_events = [x for n, x in enumerate(events_gathered) if x in events_gathered[:n]]
-        if duplicate_events:
-            raise Exception(f"Function names from worker files must be unique!\nCheck function(s): {','.join(duplicate_events)}")
-        
-        # print(events_gathered)
-
-        return events
-
-
     def save(self, task):
-        save_path = os.path.join(self.worker_dir, f"{task.id}.pickle")
+        save_path = os.path.join(self.ker_dir, f"{task.id}.pickle")
         with open(save_path, "wb") as pkl:
             pickle.dump(task, pkl)  
         # logging.warning(f"New task added:\n{save_path}")
 
     def load(self, id):
-        save_path = os.path.join(self.worker_dir, f"{id}.pickle")
+        save_path = os.path.join(self.ker_dir, f"{id}.pickle")
         with open(save_path, "rb") as pkl:
             task = pickle.load(pkl)
         # logging.warning(f"Task loaded:\n{save_path}")
@@ -203,7 +207,9 @@ class Kerground:
 
 
     def run(self):
+
         while True:
+
             pending_tasks = self.pending()  
             if not pending_tasks: 
                 time.sleep(1)
@@ -214,20 +220,51 @@ class Kerground:
             with ProcessPoolExecutor() as executor:
                 # Sync
                 [executor.submit(self.execute(task)) for task in pending_tasks]
+
+            logging.warning("Waiting...")
     
 
 
-
-
+# Initializer for api's
 ker = Kerground()
 
 
-if __name__ == "__main__":   
+def cli():
 
-    if "run" in sys.argv:
-        logging.warning("\n\nKERGROUND READY\n\n")
-        ker.run()
-    else:
-        raise Exception("Type `python3 kerground.py run`")
+    parser = argparse.ArgumentParser(
+        prog="kerground", description="Run kerground background worker."
+    ) 
+
+    # parser.add_argument(
+    #     "--workers-path", type=str, default=".", 
+    #     help="Path to *_worker.py files from which events will be collected."
+    # )
+    # parser.add_argument(
+    #     "--storage-path", type=str, default=".", 
+    #     help="Path needed to store kerground files."
+    # )
+    
+    args = parser.parse_args()
+    
+    workers_path = os.path.abspath(args.workers_path)
+    storage_path = os.path.abspath(args.storage_path)
+
+    # logging.warning("KERGROUND_WORKERS_PATH " + workers_path)
+    # logging.warning("KERGROUND_STORAGE_PATH " + storage_path)
+
+    # # 
+    # os.environ["KERGROUND_WORKERS_PATH"] = workers_path
+    # os.environ["KERGROUND_STORAGE_PATH"] = storage_path
+
+    logging.warning("\n\nKERGROUND READY\n\n")
+
+    Kerground(
+        workers_path, storage_path
+    ).run()
+
+
 
     
+
+if __name__ == "__main__": 
+    cli()
