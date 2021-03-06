@@ -12,7 +12,7 @@ with open("README.md", "r") as fh:
 setup(
     name="kerground",
     version="0.0.1",
-    description="Simple background worker based on pickle and sqlite",
+    description="Background worker based on pickle and sqlite",
     url="https://github.com/ClimenteA/kerground",
     author="Climente Alin",
     author_email="climente.alin@gmail.com",
