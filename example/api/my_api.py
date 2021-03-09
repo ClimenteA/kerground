@@ -11,15 +11,28 @@ def index():
     return {"routes": route_list}
 
 @app.route('/add-long-task')
-def long_task_adder():
-    id = ker.send('long_task', "params")
+def f1():
+    id = ker.send('long_task')
     # you will receive an id which you can use howerver you want
     # here we send it to frontend to ask later if task is done
     return {'id': id}
 
+
+@app.route('/task-no-params')
+def f2():
+    id = ker.send('task_no_params')
+    return {'id': id}
+
+
+@app.route('/task-with-params/<param1>/<param2>')
+def f3(param1, param2):
+    id = ker.send('task_with_params', param1, param2)
+    return {'id': id}
+
+
 @app.route('/status')
 @app.route('/status/<id>')
-def long_task_status(id=None):
+def f4(id=None):
     
     if id:
         return {'status': ker.status(id)}
@@ -30,6 +43,14 @@ def long_task_status(id=None):
         'finished': ker.finished(),
         'failed': ker.failed()
     }
+
+
+@app.route('/get-response/<id>')
+def f5(id):
+    res = ker.get_response(id)
+    return {'response': res}
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)

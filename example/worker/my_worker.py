@@ -1,11 +1,19 @@
 import time
 
 
-def long_task(params):
+def long_task():
     time.sleep(1)
     return
 
-def another_long_task():
+
+def task_no_params():
     time.sleep(1)
     return
+
+def task_with_params(param1, param2="default"):
     
+    with open("some.txt", 'w') as f:
+        f.write(str(param1 + param2))
+    
+    return param1, param2
+

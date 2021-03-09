@@ -181,7 +181,7 @@ class Kerground:
                 
                     # execute func
                     if task.args: 
-                        response = getattr(data["module"], task.event)(task.args) 
+                        response = getattr(data["module"], task.event)(*task.args) 
                     else: 
                         response = getattr(data["module"], task.event)()
 
