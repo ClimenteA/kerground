@@ -9,42 +9,38 @@ from importlib.util import spec_from_file_location, module_from_spec
 from inspect import getmembers, isfunction
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import argparse
+import tempfile
+
 
 
 PendingTask  = namedtuple("PendingTask" , ["id", "event", "args", "status", "response"])
 FinishedTask = namedtuple("FinishedTask" , ["id", "event", "args", "status", "response"])
 
 
+# TODO
+# Needs probably 3 files/classes 
+# one for commun (sql etc), 
+# one for event dispacher 
+# one for cli
+
 class Kerground:
     
-    def __init__(self, workers_path=None, storage_path=None):
-
-        if not workers_path:
-            workers_path = os.getenv("KERGROUND_WORKERS_PATH")
-        if not storage_path:
-            storage_path = os.getenv("KERGROUND_STORAGE_PATH")
-            
-        if not workers_path or storage_path:
-            workers_path = os.getcwd()
-            storage_path = os.getcwd()
-
-
+    def __init__(self, _workers_path=None):
         # TODO add timeout's, cron_jobs
-        self.ker_dir = Kerground.prep_storage_dir(storage_path)
-        self.events, self.events_collected = Kerground.collect_events(workers_path)
+
+        self.storage_path = os.path.join(tempfile.gettempdir(), "kerground_storage")
+
+        # This executes if called from terminal
+        if _workers_path: 
+            if os.path.exists(self.storage_path):
+                shutil.rmtree(self.storage_path)
+                os.mkdir(self.storage_path)
+            else:
+                os.mkdir(self.storage_path)
+
+            self.events, self.events_collected = Kerground.collect_events(_workers_path)
+        
         self.create_db()
-
-
-    @staticmethod
-    def prep_storage_dir(storage_path):
-
-        if ".Kerground" not in storage_path:
-            storage_path = os.path.join(storage_path, ".Kerground")
-
-        if not os.path.exists(storage_path):
-            os.mkdir(storage_path)
-
-        return storage_path
 
 
     @staticmethod
@@ -83,7 +79,7 @@ class Kerground:
 
     def execute_sql(self, sql):
 
-        self.sqlpath = os.path.join(self.ker_dir, "tasks.db")
+        self.sqlpath = os.path.join(self.storage_path, "tasks.db")
         
         with sqlite3.connect(self.sqlpath) as conn:
             if isinstance(sql, tuple):
@@ -127,13 +123,13 @@ class Kerground:
         return spec, module, func_names
 
     def save(self, task):
-        save_path = os.path.join(self.ker_dir, f"{task.id}.pickle")
+        save_path = os.path.join(self.storage_path, f"{task.id}.pickle")
         with open(save_path, "wb") as pkl:
             pickle.dump(task, pkl)  
         # logging.warning(f"New task added:\n{save_path}")
 
     def load(self, id):
-        save_path = os.path.join(self.ker_dir, f"{id}.pickle")
+        save_path = os.path.join(self.storage_path, f"{id}.pickle")
         with open(save_path, "rb") as pkl:
             task = pickle.load(pkl)
         # logging.warning(f"Task loaded:\n{save_path}")
@@ -217,15 +213,20 @@ class Kerground:
 
             logging.warning("pending_tasks: " + str(pending_tasks))
 
-            with ProcessPoolExecutor() as executor:
-                # Sync
-                [executor.submit(self.execute(task)) for task in pending_tasks]
+            [self.execute(task) for task in pending_tasks]   
+
+
+            # TODO there are some issues on pickle
+            # with ProcessPoolExecutor() as executor:
+            #     # Sync
+            #     [executor.submit(self.execute, task) for task in pending_tasks]
 
             logging.warning("Waiting...")
     
 
 
-# Initializer for api's
+# Initializer for APIs/Events dispacher
+# should be a better way to do this, but for now it works
 ker = Kerground()
 
 
@@ -239,32 +240,17 @@ def cli():
         "--workers-path", type=str, default=".", 
         help="Path to *_worker.py files from which events will be collected."
     )
-    parser.add_argument(
-        "--storage-path", type=str, default=".", 
-        help="Path needed to store kerground files."
-    )
     
     args = parser.parse_args()
-    
+
     workers_path = os.path.abspath(args.workers_path)
-    storage_path = os.path.abspath(args.storage_path)
-
-    # logging.warning("KERGROUND_WORKERS_PATH " + workers_path)
-    # logging.warning("KERGROUND_STORAGE_PATH " + storage_path)
-
-    # # 
-    # os.environ["KERGROUND_WORKERS_PATH"] = workers_path
-    # os.environ["KERGROUND_STORAGE_PATH"] = storage_path
-
     logging.warning("\n\nKERGROUND READY\n\n")
-
-    Kerground(
-        workers_path, storage_path
-    ).run()
-
-
-
     
+    try:
+        Kerground(workers_path).run()
+    except KeyboardInterrupt:
+        logging.warning("\n\nKERGROUND STOPPED\n\n")
+
 
 if __name__ == "__main__": 
     cli()
