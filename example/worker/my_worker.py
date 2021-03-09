@@ -2,7 +2,7 @@ import time
 
 
 def long_task():
-    time.sleep(0.1)
+    time.sleep(1)
     return
 
 

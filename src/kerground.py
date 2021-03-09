@@ -1,10 +1,9 @@
 import time
 import sqlite3
-import os, sys, shutil
+import os, shutil
 import logging
 import uuid, pickle
-import itertools, traceback
-from collections import namedtuple
+import traceback
 from importlib.util import spec_from_file_location, module_from_spec
 from inspect import getmembers, isfunction
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -13,74 +12,70 @@ import tempfile
 
 
 
-PendingTask  = namedtuple("PendingTask" , ["id", "event", "args", "status", "response"])
-FinishedTask = namedtuple("FinishedTask" , ["id", "event", "args", "status", "response"])
-
-
 # TODO
+# add timeout's, cron_jobs
 # Needs probably 3 files/classes 
 # one for commun (sql etc), 
 # one for event dispacher 
 # one for cli
+# maybe remove the need for a class?
+# since all funcs from worker.py files are unique named auto generate event? like ker.event()?
+
+
+def dump_pickle(data, file_path):
+    with open(file_path, "wb") as pkl:
+        pickle.dump(data, pkl)
+
+def load_pickle(file_path):
+    with open(file_path, "rb") as pkl:
+        data = pickle.load(pkl)
+    return data
+
+def get_module_data(file_path):
+    module_name = os.path.basename(file_path).split(".py")[0]
+    spec = spec_from_file_location(module_name, file_path)
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    func_names = [f[0] for f in getmembers(module, isfunction)]
+    return spec, module, func_names
+
+def collect_events(workers_path):
+    events = {}
+    for root, dirs, files in os.walk(workers_path): 
+        for file in files:
+            if file.endswith("_worker.py"): 
+                file_path = os.path.join(root, file)
+                spec, module, func_names = get_module_data(file_path)
+                # spec, module can't be pickeld 
+                events.update({fn:file_path for fn in func_names})
+    # logging.warning(events)
+    return events
+
 
 class Kerground:
     
     def __init__(self, _workers_path=None):
-        # TODO add timeout's, cron_jobs
 
         self.storage_path = os.path.join(tempfile.gettempdir(), "kerground_storage")
+        self.sqlpath = os.path.join(self.storage_path, "tasks.db")
+        self._events_pickle = os.path.join(self.storage_path, 'events.pickle')
 
-        # This executes if called from terminal
         if _workers_path: 
+
             if os.path.exists(self.storage_path):
                 shutil.rmtree(self.storage_path)
                 os.mkdir(self.storage_path)
             else:
                 os.mkdir(self.storage_path)
 
-            self.events, self.events_collected = Kerground.collect_events(_workers_path)
-        
+            self.events = collect_events(_workers_path)
+            dump_pickle(self.events, self._events_pickle)
+
         self.create_db()
-
-
-    @staticmethod
-    def collect_events(workers_path):
-
-        events = {}
-        events_collected = []
-        for root, dirs, files in os.walk(workers_path): 
-            for file in files:
-                if file.endswith("_worker.py"):
-
-                    file_path = os.path.join(root, file)
-                    spec, module, func_names = Kerground.get_module_data(file_path)
-                    file_id = str(uuid.uuid5(uuid.NAMESPACE_OID, file_path))
-
-                    events.update({
-                        file_id: {
-                            "file_path": file_path,
-                            "spec": spec,
-                            "module": module,
-                            "events": func_names
-                        }
-                    })
-
-                    events_collected.append(func_names)
-
-        events_collected = list(itertools.chain.from_iterable(events_collected))
-        duplicate_events = [x for n, x in enumerate(events_collected) if x in events_collected[:n]]
-        if duplicate_events:
-            raise Exception(f"Function names from worker files must be unique!\nCheck function(s): {','.join(duplicate_events)}")
-        
-        # print(events_gathered)
-
-        return events, events_collected
 
 
     def execute_sql(self, sql):
 
-        self.sqlpath = os.path.join(self.storage_path, "tasks.db")
-        
         with sqlite3.connect(self.sqlpath) as conn:
             if isinstance(sql, tuple):
                 if sql[0].upper().startswith("SELECT"):
@@ -99,6 +94,7 @@ class Kerground:
         sql_statement = "CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);"
         self.execute_sql(sql_statement)
 
+
     def tasks_by_status(self, status: str):
         sql_statement = "SELECT id FROM tasks WHERE status = ?;", (status,)
         res = self.execute_sql(sql_statement)
@@ -109,35 +105,25 @@ class Kerground:
     def running(self) : return self.tasks_by_status("running")
     def finished(self): return self.tasks_by_status("finished")
     def failed(self)  : return self.tasks_by_status("failed")
-        
 
-    @staticmethod
-    def get_module_data(file_path):
-
-        module_name = os.path.basename(file_path).split(".py")[0]
-        spec = spec_from_file_location(module_name, file_path)
-        module = module_from_spec(spec)
-        spec.loader.exec_module(module)
-        func_names = [f[0] for f in getmembers(module, isfunction)]
-
-        return spec, module, func_names
+    def stats(self):
+        return {
+            'pending': self.pending(),
+            'running': self.running(),
+            'finished': self.finished(),
+            'failed': self.failed()
+        }
 
     def save(self, task):
-        save_path = os.path.join(self.storage_path, f"{task.id}.pickle")
-        with open(save_path, "wb") as pkl:
-            pickle.dump(task, pkl)  
-        # logging.warning(f"New task added:\n{save_path}")
-
+        dump_pickle(task, os.path.join(self.storage_path, f"{task['id']}.pickle"))
+        
     def load(self, id):
-        save_path = os.path.join(self.storage_path, f"{id}.pickle")
-        with open(save_path, "rb") as pkl:
-            task = pickle.load(pkl)
-        # logging.warning(f"Task loaded:\n{save_path}")
+        task = load_pickle(os.path.join(self.storage_path, f"{id}.pickle"))
         return task
     
     def get_response(self, id):
         task = self.load(id)
-        return task.response
+        return task['response']
 
     def send(self, event, *args):
         
@@ -147,13 +133,20 @@ class Kerground:
         if not isinstance(event, str): 
             raise Exception("Event must be a string or function!")
 
-        task = PendingTask(str(uuid.uuid4()), event, args, "pending", None)
+        task = {
+            "id": str(uuid.uuid4()), 
+            "event": event, 
+            "args": args, 
+            "status": "pending", 
+            "response": None
+        }
+        
         self.save(task)
 
-        sql_statement = "INSERT INTO tasks (id, status) VALUES (?, ?);", (task.id, task.status,)
+        sql_statement = "INSERT INTO tasks (id, status) VALUES (?, ?);", (task['id'], task['status'],)
         self.execute_sql(sql_statement)
         
-        return task.id
+        return task['id']
 
     def status(self, id):
         sql_statement = "SELECT status FROM tasks WHERE id = ?;", (id,)
@@ -168,38 +161,36 @@ class Kerground:
 
         try:
 
-            ftask = None
-            for _, data in self.events.items():
-                if task.event in data["events"]:
-                    
-                    # import module
-                    data["spec"].loader.exec_module(data["module"]) 
-                
-                    # execute func
-                    if task.args: 
-                        response = getattr(data["module"], task.event)(*task.args) 
-                    else: 
-                        response = getattr(data["module"], task.event)()
+            func_path = self.events[task['event']]
+            spec, module, _ = get_module_data(func_path)
 
-                    ftask = FinishedTask(id, task.event, task.args, "finished", response)
-                    break
+            # import module
+            spec.loader.exec_module(module)
+            # execute func
+            if task['args']: 
+                response = getattr(module, task['event'])(*task['args']) 
+            else: 
+                response = getattr(module, task['event'])()
 
-            if not ftask: raise Exception(f'Event "{task.event}" with id "{id}" not found!')
-            self.save(ftask)
+            task['status']   = "finished"
+            task['response'] = response      
 
-            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id,)
+            self.save(task)
+
+            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (task['status'], task['id'],)
             self.execute_sql(sql_statement)
 
             return response
 
         except:
 
-            ftask = FinishedTask(id, task.event, task.args, "failed", traceback.format_exc())
-            
-            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (ftask.status, ftask.id,)
+            task['status']   = "failed"
+            task['response'] = traceback.format_exc()  
+
+            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (task['status'], task['id'],)
             self.execute_sql(sql_statement)
 
-            self.save(ftask)
+            self.save(task)
 
 
     def run(self):
@@ -211,23 +202,21 @@ class Kerground:
                 time.sleep(1)
                 continue
 
-            logging.warning("pending_tasks: " + str(pending_tasks))
+            logging.warning(f"Working on {len(pending_tasks)} tasks...")
 
-            [self.execute(task) for task in pending_tasks]   
+            # start_time = time.time()
 
+            #Sync
+            # [self.execute(task) for task in pending_tasks]
 
-            # TODO there are some issues on pickle
-            # with ProcessPoolExecutor() as executor:
-            #     # Sync
-            #     [executor.submit(self.execute, task) for task in pending_tasks]
+            #Multiprocessing
+            with ProcessPoolExecutor() as executor:
+                executor.map(self.execute, pending_tasks)
+
+            # logging.warning(f"---- {time.time() - start_time}sec ----")
 
             logging.warning("Waiting...")
-    
 
-
-# Initializer for APIs/Events dispacher
-# should be a better way to do this, but for now it works
-ker = Kerground()
 
 
 def cli():
