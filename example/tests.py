@@ -7,9 +7,9 @@ ker = Kerground()
 
 class TestKerground(unittest.TestCase):
 
-    # def test_send_task(self):
-    #     id = ker.send('task_no_params')
-    #     self.assertIsInstance(id, str)
+    def test_send_task(self):
+        id = ker.send('task_no_params')
+        self.assertIsInstance(id, str)
 
     def test_send_task_with_args(self):
         id = ker.send('task_with_params', 'param1', 'param2')

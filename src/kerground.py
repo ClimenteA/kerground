@@ -1,26 +1,50 @@
-import time
+import logging, traceback
 import sqlite3
-import os, shutil
-import logging
-import uuid, pickle
-import traceback
-from importlib.util import spec_from_file_location, module_from_spec
-from inspect import getmembers, isfunction
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import argparse
 import tempfile
+import time, os, shutil
+import uuid, pickle
+
+from threading import Thread
+from concurrent.futures import ProcessPoolExecutor
+
+from importlib.util import (
+    spec_from_file_location, 
+    module_from_spec
+)
+from inspect import (
+    getmembers, 
+    isfunction
+)
+
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] - %(message)s')
 
 
 
-# TODO
-# add timeout's, cron_jobs
-# Needs probably 3 files/classes 
-# one for commun (sql etc), 
-# one for event dispacher 
-# one for cli
-# maybe remove the need for a class?
-# since all funcs from worker.py files are unique named auto generate event? like ker.event()?
+class ThreadWithResult(Thread):
+    def __init__(self, group=None, target=None, name=None, args=(), kwargs={}, *, daemon=None):
+        def function():
+            self.result = target(*args, **kwargs)
+        super().__init__(group=group, target=function, name=name, daemon=daemon)
 
+
+def warn_timeout(func, sec, *args):
+
+    t = ThreadWithResult(target=func, args=args)
+    t.start()
+    t.join(timeout=sec)
+    if t.is_alive():
+        logging.warning(
+            f"""Function '{args[0]['event']}' takes more than {sec} {"second" if sec == 1 else "seconds"}!"""
+        )
+    t.join()
+    return t.result
+
+
+def execute_funcs(func, tasks):
+    with ProcessPoolExecutor() as executor:
+        executor.map(func, tasks)
 
 def dump_pickle(data, file_path):
     with open(file_path, "wb") as pkl:
@@ -52,30 +76,29 @@ def collect_events(workers_path):
     return events
 
 
+
 class Kerground:
     
-    def __init__(self, _workers_path=None):
+    def __init__(self, workers_path=None):
 
         self.storage_path = os.path.join(tempfile.gettempdir(), "kerground_storage")
         self.sqlpath = os.path.join(self.storage_path, "tasks.db")
-        self._events_pickle = os.path.join(self.storage_path, 'events.pickle')
 
-        if _workers_path: 
+        if not os.path.exists(self.storage_path): 
+            os.mkdir(self.storage_path)
 
+        if workers_path: 
             if os.path.exists(self.storage_path):
                 shutil.rmtree(self.storage_path)
                 os.mkdir(self.storage_path)
-            else:
-                os.mkdir(self.storage_path)
 
-            self.events = collect_events(_workers_path)
-            dump_pickle(self.events, self._events_pickle)
+            self.events = collect_events(workers_path)
 
         self.create_db()
 
 
     def execute_sql(self, sql):
-
+    
         with sqlite3.connect(self.sqlpath) as conn:
             if isinstance(sql, tuple):
                 if sql[0].upper().startswith("SELECT"):
@@ -94,12 +117,10 @@ class Kerground:
         sql_statement = "CREATE TABLE IF NOT EXISTS tasks (id TEXT NOT NULL, status TEXT NOT NULL);"
         self.execute_sql(sql_statement)
 
-
     def tasks_by_status(self, status: str):
         sql_statement = "SELECT id FROM tasks WHERE status = ?;", (status,)
         res = self.execute_sql(sql_statement)
         return res
-
 
     def pending(self) : return self.tasks_by_status("pending")
     def running(self) : return self.tasks_by_status("running")
@@ -125,18 +146,19 @@ class Kerground:
         task = self.load(id)
         return task['response']
 
-    def send(self, event, *args):
+    def send(self, event, /, *args, timeout=None):
         
         if isfunction(event):
             event = event.__name__
 
         if not isinstance(event, str): 
-            raise Exception("Event must be a string or function!")
+            raise Exception("Event must be a string or a function!")
 
         task = {
             "id": str(uuid.uuid4()), 
             "event": event, 
             "args": args, 
+            "timeout": timeout,
             "status": "pending", 
             "response": None
         }
@@ -145,7 +167,7 @@ class Kerground:
 
         sql_statement = "INSERT INTO tasks (id, status) VALUES (?, ?);", (task['id'], task['status'],)
         self.execute_sql(sql_statement)
-        
+
         return task['id']
 
     def status(self, id):
@@ -153,45 +175,41 @@ class Kerground:
         res = self.execute_sql(sql_statement)
         return res[0] if res else "id not found"
 
-
-    def execute(self, id):
-        task = self.load(id)
-        sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", ("running", id,)
+    def set_status(self, id, status):
+        sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (status, id,)
         self.execute_sql(sql_statement)
 
+    def update_task(self, task, status, response):
+        self.set_status(task['id'], status)
+        task['status']   = status
+        task['response'] = response      
+        self.save(task)
+
+    def fetch_task(self, id):
+        task = self.load(id)
+        self.set_status(id, "running")
+        func_path = self.events[task['event']]
+        spec, module, _ = get_module_data(func_path)
+        return task, spec, module
+
+    def run_task(self, task, spec, module):
+        # import module
+        spec.loader.exec_module(module)
+        # execute func
+        if task['args']: 
+            response = getattr(module, task['event'])(*task['args']) 
+        else: 
+            response = getattr(module, task['event'])()
+        return response
+
+    def execute(self, id):
+        task, spec, module = self.fetch_task(id)
         try:
-
-            func_path = self.events[task['event']]
-            spec, module, _ = get_module_data(func_path)
-
-            # import module
-            spec.loader.exec_module(module)
-            # execute func
-            if task['args']: 
-                response = getattr(module, task['event'])(*task['args']) 
-            else: 
-                response = getattr(module, task['event'])()
-
-            task['status']   = "finished"
-            task['response'] = response      
-
-            self.save(task)
-
-            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (task['status'], task['id'],)
-            self.execute_sql(sql_statement)
-
+            response = warn_timeout(self.run_task, task['timeout'], task, spec, module)
+            self.update_task(task, "finished", response)
             return response
-
         except:
-
-            task['status']   = "failed"
-            task['response'] = traceback.format_exc()  
-
-            sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (task['status'], task['id'],)
-            self.execute_sql(sql_statement)
-
-            self.save(task)
-
+            self.update_task(task, "failed", traceback.format_exc())
 
     def run(self):
 
@@ -202,20 +220,13 @@ class Kerground:
                 time.sleep(1)
                 continue
 
-            logging.warning(f"Working on {len(pending_tasks)} tasks...")
+            start_time = time.time()
+            logging.info(f"Started working on {len(pending_tasks)} tasks...")
 
-            # start_time = time.time()
-
-            #Sync
-            # [self.execute(task) for task in pending_tasks]
-
-            #Multiprocessing
-            with ProcessPoolExecutor() as executor:
-                executor.map(self.execute, pending_tasks)
-
-            # logging.warning(f"---- {time.time() - start_time}sec ----")
-
-            logging.warning("Waiting...")
+            execute_funcs(self.execute, pending_tasks)
+        
+            end_time = round(time.time() - start_time, 4)
+            logging.info(f"Done in {end_time} {'second' if end_time == 1 else 'seconds'}!")
 
 
 
@@ -233,12 +244,12 @@ def cli():
     args = parser.parse_args()
 
     workers_path = os.path.abspath(args.workers_path)
-    logging.warning("\n\nKERGROUND READY\n\n")
+    logging.info("\n\nKERGROUND READY\n\n")
     
     try:
         Kerground(workers_path).run()
     except KeyboardInterrupt:
-        logging.warning("\n\nKERGROUND STOPPED\n\n")
+        logging.info("\n\nKERGROUND STOPPED\n\n")
 
 
 if __name__ == "__main__": 
