@@ -60,10 +60,12 @@ Open 2 cmd/terminal windows in the example directory:
 
 ## API
 
-### `ker.send('func_name', *func_args)` 
+### `ker.send('func_name', *func_args, timeout=None)` 
 
 Send event to kerground worker. `send` function will return the id of the task sent to the worker. 
 You have **hot reload** on your workers by default! (as long you don't change function names)
+
+Parameter `timeout` will warn you if function takes longer than expected.
 
 
 ### `ker.status(id)` 
