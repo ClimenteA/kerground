@@ -1,7 +1,8 @@
 # kerground 
 [![Downloads](https://pepy.tech/badge/kerground)](https://pepy.tech/project/kerground) [![PyPI](https://img.shields.io/pypi/v/kerground?color=blue)](https://pypi.org/project/kerground/)
 
-Background worker based on pickle, sqlite and multiprocessing.
+
+Stupid simple background worker based on python.
 
 
 ## Quickstart
@@ -19,11 +20,13 @@ my_worker.py
 ```
 
 Kerground will look in `*_worker.py` and will consider each function an event. 
-**Functions from `*_worker.py` files must be unique**
+**Functions from `*_worker.py` files must be unique.**
 
-Import `Kerground`, instantiate it and start sending events
+Import `Kerground`, instantiate it and start sending events:
 
 ```py
+#my_api.py
+
 from kerground import Kerground
 
 ker = Kerground()
@@ -31,10 +34,23 @@ ker = Kerground()
 @app.route('/some-task')
 def long_wait():
     id = ker.send('long_task') 
-    # 'long_task' is a function name from *_worker.py files
     return {'id': id}
 
 ```
+
+Event `long_task` is a function name from *_worker.py files
+    
+
+```py
+#my_worker.py
+import time
+
+def long_task():
+    # heavy workoad, more than a few seconds job
+    time.sleep(2)
+    
+```
+
 
 **Your api's and workers must be in the same package/directory**
 
@@ -60,12 +76,13 @@ Open 2 cmd/terminal windows in the example directory:
 
 ## API
 
-### `ker.send('func_name', *func_args, timeout=None)` 
+### `ker.send('func_name', *func_args, timeout=None, purge=True)` 
 
 Send event to kerground worker. `send` function will return the id of the task sent to the worker. 
 You have **hot reload** on your workers by default! (as long you don't change function names)
 
-Parameter `timeout` will warn you if function takes longer than expected.
+- `timeout`: will show in kerground logs a warning if function takes longer than expected;
+- `purge`  : if `True` when function is executed event will be deleted, if `False` event will be deleted after a `ker.get_response(id)` call.
 
 
 ### `ker.status(id)` 

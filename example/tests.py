@@ -2,6 +2,7 @@ import unittest
 import os, time
 from kerground import Kerground
 
+
 ker = Kerground()
 
 
@@ -32,7 +33,7 @@ class TestKerground(unittest.TestCase):
         self.assertCountEqual(tasks_sent, saved)
 
     def test_get_response(self):
-        id = ker.send('task_one_param', "must be returned")
+        id = ker.send('task_one_param', "must be returned", purge=False)
         while ker.status(id) in ['pending', 'running']:
             time.sleep(1)
         res = ker.get_response(id)

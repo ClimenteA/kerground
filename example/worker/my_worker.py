@@ -2,8 +2,9 @@ import time
 
 
 def long_task():
-    # time.sleep(1)
-    return "test"
+    # heavy workoad, more than a few seconds job
+    return "done"
+
 
 def task_one_param(param):
     # time.sleep(0.2)
