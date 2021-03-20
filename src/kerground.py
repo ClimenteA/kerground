@@ -51,6 +51,10 @@ def dump_pickle(data, file_path):
         pickle.dump(data, pkl)
 
 def load_pickle(file_path):
+    
+    if not os.path.exists(file_path): 
+        raise Exception("Task not found! Please start kerground first before sending events.") 
+
     with open(file_path, "rb") as pkl:
         data = pickle.load(pkl)
     return data
@@ -144,9 +148,19 @@ class Kerground:
     
     def get_response(self, id):
         task = self.load(id)
+        if not task['purge']:
+            self.delete_task(task)
         return task['response']
 
-    def send(self, event, /, *args, timeout=None):
+    def send(self, event, /, *args, timeout:int=None, purge:bool=True):
+        """
+            event - function name from *_worker.py files to be invoked later (can be the actual func itself)
+            args  - positional arguments to be passed for the event
+            purge - 
+                    * True: event will be deleted from queue when it's finished
+                    * False: event will be kept until event it's finished and deleted when `get_response` function is invoked
+
+        """
         
         if isfunction(event):
             event = event.__name__
@@ -159,6 +173,7 @@ class Kerground:
             "event": event, 
             "args": args, 
             "timeout": timeout,
+            "purge": purge,
             "status": "pending", 
             "response": None
         }
@@ -178,12 +193,24 @@ class Kerground:
     def set_status(self, id, status):
         sql_statement = "UPDATE tasks SET status = ? WHERE id = ?;", (status, id,)
         self.execute_sql(sql_statement)
+    
+    def delete_task(self, task):
+
+        sql_statement = "DELETE FROM tasks WHERE id = ?;", (task['id'],)
+        self.execute_sql(sql_statement)
+
+        task_path = os.path.join(self.storage_path, f"{task['id']}.pickle") 
+        if os.path.exists(task_path): os.remove(task_path)
+
 
     def update_task(self, task, status, response):
-        self.set_status(task['id'], status)
-        task['status']   = status
-        task['response'] = response      
-        self.save(task)
+        if task['purge']:
+            self.delete_task(task)
+        else:
+            self.set_status(task['id'], status)
+            task['status']   = status
+            task['response'] = response      
+            self.save(task)
 
     def fetch_task(self, id):
         task = self.load(id)
@@ -250,7 +277,7 @@ def cli():
         Kerground(workers_path).run()
     except KeyboardInterrupt:
         logging.info("\n\nKERGROUND STOPPED\n\n")
-
+    
 
 if __name__ == "__main__": 
     cli()
