@@ -1,7 +1,7 @@
 from flask import Flask
-from kerground import ker
+from kerground import Kerground 
 
-
+ker = Kerground()
 
 app = Flask(__name__)
 
