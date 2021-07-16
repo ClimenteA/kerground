@@ -1,5 +1,5 @@
 {
-    "python.pythonPath": "/home/acmt/.virtualenvs/bgwork-KY53d4Xd/bin/python",
+    "python.pythonPath": "/usr/bin/python3",
     "python.analysis.extraPaths": [
         "/home/acmt/Documents/background-worker/example"
     ]

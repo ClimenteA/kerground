@@ -38,6 +38,8 @@ def long_wait():
 
 ```
 
+
+
 Event `long_task` is a function name from *_worker.py files
     
 
@@ -73,6 +75,66 @@ Open 2 cmd/terminal windows in the example directory:
 ![kerground_example.gif](pics/kerground_example.gif)
 
 
+## Multiple Kerground instance and Workers
+
+Optionally, when instantiating the Kerground (or start the worker process from console), you can pass the optional argument `workers_path`, in this case, Kerground will look in `*_worker.py` of each folder passed and will consider each function an event. 
+**Functions from `*_worker.py` files must be unique.** 
+
+Due to that, according the path given to `workers_path` parameter Kerworker will create a separated folder with a separated db in the `tempfile` system directory for every instance of Kerworker.
+
+This will allow you to define multiple queue and workers on separated db and manage the processing of those workers separately.
+
+```py
+#my_api.py from example_multiple_workers
+from kerground import Kerground
+
+pri_ker = Kerground(workers_path="../main_worker")
+sec_ker = Kerground(workers_path="../secondary_worker")
+
+@app.route('/main-worker/add-long-task')
+def f1():
+    id = pri_ker.send('long_task')
+    # you will receive an id which you can use howerver you want
+    # here we send it to frontend to ask later if task is done
+    return {'id': id}
+
+@app.route('/secondary-worker/add-very-long-task')
+def f2():
+    id = sec_ker.send('long_task')
+    # you will receive an id which you can use howerver you want
+    # here we send it to frontend to ask later if task is done
+    return {'id': id}
+    
+```
+
+Remember when you will start the workers, you need to give also the parameter `--workers-path`
+
+```sh
+#kerground/example_multiple_workers
+python3 kerground.py --workers-path='./main_worker'
+python3 kerground.py --workers-path='./secondary_worker'
+```
+
+```sh
+#tmp folder
+>> ls -lah
+total 0
+drwxr-xr-x    4 simone  staff   128B Jul 16 09:28 .
+drwx------@ 194 simone  staff   6.1K Jul 16 09:28 ..
+drwxr-xr-x    3 simone  staff    96B Jul 16 09:28 main_worker
+drwxr-xr-x    3 simone  staff    96B Jul 16 09:28 secondary_worker
+```
+```sh
+#inside main_worker folder
+>> ls
+tasks.db
+a473dcda-d6e0-4fe1-9944-d708148ef1fb.pickle
+
+#inside secondary_worker folder
+>> ls
+tasks.db
+d03237c6-83a9-45c4-a91b-46c6fb2b090c.pickle
+```
 
 ## API
 

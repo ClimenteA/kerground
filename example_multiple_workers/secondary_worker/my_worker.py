@@ -2,8 +2,8 @@ import time
 
 
 def long_task():
-    # heavy workoad, more than a few seconds job
-    time.sleep(5)
+    # very heavy workoad, more than a few seconds job
+    time.sleep(10)
     return "done"
 
 
