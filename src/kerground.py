@@ -84,17 +84,21 @@ def collect_events(workers_path):
 class Kerground:
     
     def __init__(self, workers_path=None):
-
-        self.storage_path = os.path.join(tempfile.gettempdir(), "kerground_storage")
+        
+        if workers_path:
+            self.storage_path = os.path.join(tempfile.gettempdir(), "kerground_storage", workers_path.split('/')[-1])
+        else:    
+            self.storage_path = os.path.join(tempfile.gettempdir(), "kerground_storage")
+        
         self.sqlpath = os.path.join(self.storage_path, "tasks.db")
 
         if not os.path.exists(self.storage_path): 
-            os.mkdir(self.storage_path)
+            os.makedirs(self.storage_path)
 
         if workers_path: 
             if os.path.exists(self.storage_path):
                 shutil.rmtree(self.storage_path)
-                os.mkdir(self.storage_path)
+                os.makedirs(self.storage_path)
 
             self.events = collect_events(workers_path)
 
