@@ -201,3 +201,6 @@ class Kerground:
             except KeyboardInterrupt:
                 print("Stopped")
                 break
+
+
+ker = Kerground()

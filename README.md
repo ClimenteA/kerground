@@ -2,7 +2,7 @@
 [![Downloads](https://pepy.tech/badge/kerground)](https://pepy.tech/project/kerground) [![PyPI](https://img.shields.io/pypi/v/kerground?color=blue)](https://pypi.org/project/kerground/)
 
 
-Stupid simple background worker based on python.
+Stupid simple background worker based on python. `Kerground` is super basic - no need for Redis/RabbitMQ. It does not utilize to much RAM because events are saved in plain old json files.
 
 
 ## Quickstart
@@ -13,174 +13,79 @@ Install
 pip install kerground
 ```
 
-Mark your file workers by naming them with `_worker.py` prefix
+In your app folder create a new package called `dependencies` (you can add this in `utils` or whatever you consider fit otherwise)
 
 ```py
-my_worker.py
-```
-
-Kerground will look in `*_worker.py` and will consider each function an event. 
-**Functions from `*_worker.py` files must be unique.**
-
-Import `Kerground`, instantiate it and start sending events:
-
-```py
-#my_api.py
-
+#app/dependencies/kerground.py
 from kerground import Kerground
 
 ker = Kerground()
-
-@app.route('/some-task')
-def long_wait():
-    id = ker.send('long_task') 
-    return {'id': id}
-
 ```
+You can set on `Kerground` the following params:
+- `tasks_path` - path where the `events` will be saved by default in "./.kergroundtasks";
+- `pool` - wait in seconds for pending tasks;
 
-
-
-Event `long_task` is a function name from *_worker.py files
-    
-
+Next `register` your background workers like:
 ```py
-#my_worker.py
-import time
+#some_module_.py
+from app.dependencies import ker
 
-def long_task():
-    # heavy workoad, more than a few seconds job
-    time.sleep(2)
-    
+@ker.register(ker.MODE.THREAD, max_retries=3)
+def convert_files(event: list[str]):
+    pass # some heavy duty stuff here
 ```
+#### **The `event` must be json serializable!** 
 
+There are 3 mode available:
+- `ker.MODE.THREAD` - distribute events with `threading.Thread` if you have urls to wait;
+- `ker.MODE.PROCESS` - (**default**) distribute events with `multiprocessing.Process` if you have some CPU intensive tasks;
+- `ker.MODE.SYNC` - distribute events one by one for the func to process;
 
-**Your api's and workers must be in the same package/directory**
+By default `max_retries` is `0` you can increase this number if you need to get data from some urls and there is a posibility they will fail.
 
-```bash
-root
-├── api
-│   ├── __init__.py
-│   └── my_api.py
-└── worker
-    ├── __init__.py
-    └── my_worker.py
-```
-You are free to use any folder structure. 
-
-
-Open 2 cmd/terminal windows in the example directory:
-- in one start your api `python3 api/my_api.py`
-- in the other one type `kerground`
-
-![kerground_example.gif](pics/kerground_example.gif)
-
-
-## Multiple Kerground instance and Workers
-
-Optionally, when instantiating the Kerground (or start the worker process from console), you can pass the optional argument `workers_path`, in this case, Kerground will look in `*_worker.py` of each folder passed and will consider each function an event. 
-**Functions from `*_worker.py` files must be unique.** 
-
-Due to that, according the path given to `workers_path` parameter Kerworker will create a separated folder with a separated db in the `tempfile` system directory for every instance of Kerworker.
-
-This will allow you to define multiple queue and workers on separated db and manage the processing of those workers separately.
-
+Now you can send an event to background worker (kerground) like:
 ```py
-#my_api.py from example_multiple_workers
-from kerground import Kerground
+#some_other_module_possible_route_handler.py
+from app.dependencies import ker
 
-pri_ker = Kerground(workers_path="../main_worker")
-sec_ker = Kerground(workers_path="../secondary_worker")
-
-@app.route('/main-worker/add-long-task')
-def f1():
-    id = pri_ker.send('long_task')
-    # you will receive an id which you can use howerver you want
-    # here we send it to frontend to ask later if task is done
-    return {'id': id}
-
-@app.route('/secondary-worker/add-very-long-task')
-def f2():
-    id = sec_ker.send('long_task')
-    # you will receive an id which you can use howerver you want
-    # here we send it to frontend to ask later if task is done
-    return {'id': id}
-    
+def send_files_for_conversion(files: List[UploadFile]):
+    filepaths = [file.filename for file in files]
+    msgid = ker.enqueue("convert_files", filepaths)
+    return f"Files were sent for conversion with id: {msgid}"
 ```
+Pass to `ker.enqueue` the function name you want to call in background along with the json parsable *args and **kwargs. Function `ker.enqueue` will return an id which you can later inspect for it's status with `ker.check_status(msgid)`.
 
-Remember when you will start the workers, you need to give also the parameter `--workers-path`
-
-```sh
-#kerground/example_multiple_workers
-python3 kerground.py --workers-path='./main_worker'
-python3 kerground.py --workers-path='./secondary_worker'
-```
-
-```sh
-#tmp folder
->> ls -lah
-total 0
-drwxr-xr-x    4 simone  staff   128B Jul 16 09:28 .
-drwx------@ 194 simone  staff   6.1K Jul 16 09:28 ..
-drwxr-xr-x    3 simone  staff    96B Jul 16 09:28 main_worker
-drwxr-xr-x    3 simone  staff    96B Jul 16 09:28 secondary_worker
-```
-```sh
-#inside main_worker folder
->> ls
-tasks.db
-a473dcda-d6e0-4fe1-9944-d708148ef1fb.pickle
-
-#inside secondary_worker folder
->> ls
-tasks.db
-d03237c6-83a9-45c4-a91b-46c6fb2b090c.pickle
-```
-
-## API
-
-### `ker.send('func_name', *func_args, timeout=None, purge=True)` 
-
-Send event to kerground worker. `send` function will return the id of the task sent to the worker. 
-You have **hot reload** on your workers by default! (as long you don't change function names)
-
-- `timeout`: will show in kerground logs a warning if function takes longer than expected;
-- `purge`  : if `True` when function is executed event will be deleted, if `False` event will be deleted after a `ker.get_response(id)` call.
-
-
-### `ker.status(id)` 
-
-Check status of a task with `status`. Kerground has the folowing statuses:
-- pending  - event is added to kerground queue
-- running  - event is running
-- finished - event was executed succesfully
-- failed   - event failed to be executed
-
-Also you can check at any time the statuses of your tasks without specifing the id's:
+Prepare the `worker.py` file:
 ```py
-ker.pending() 
-ker.running()
-ker.finished()
-ker.failed()
-```
-Or check all statuses with:
-```py
-ker.stats()
+# ./worker.py
+from app.dependencies import ker
+
+if __name__ == "__main__":
+    ker.listen()
 ```
 
+You can check the `example` folder which was used for tests.
 
-### `ker.get_response(id)`
+## Multiple workers?
 
-Get the response from event (will be `None` if event didn't ran yet).
-
-You can see functions collected from `*_worker.py` files with:
-```py
-ker.events
+Just start multiple instances of `worker.py`. You can use [`honcho`](https://honcho.readthedocs.io/en/latest/) to make this easier.
 ```
-
-## Why
-
-Under the hood kerground uses pickle for serialization of input/output data, a combination of `inspect` methods and built-in `getattr` function for dynamically calling the `"events"`(functions) from `*_worker.py` files. 
-It's **resource frendly** (it doesn't use RAM to hold queue), **easy to use** (import kerground, mark your worker files with `_worker.py` prefix and you are set), **has hot reload for workers** (no need to restart workers each time you make a change) **works on multiple cores** (uses multiprocessing).
-
+# Procfile
+web: python main.py
+worker1: python worker.py
+worker2: python worker.py
+etc
+```
+Then:
+```
+honcho start
+```
 
 **Submit any questions/issues you have! Fell free to fork it and improve it!**
+
+
+# Roadmap 
+
+- Kerground Dashboard - to show running/pending/failed/done tasks, retrigger running a failed task + maybe some nice vizualizations;
+- Benchmarks with Celery;
+

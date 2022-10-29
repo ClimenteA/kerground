@@ -11,7 +11,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="kerground",
-    version="0.0.8",
+    version="0.1.0",
     description="Stupid simple background worker based on python.",
     url="https://github.com/ClimenteA/kerground",
     author="Climente Alin",
@@ -23,5 +23,5 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     package_dir={"": "src"},
-    entry_points={"console_scripts": ["kerground=kerground:cli"]},
+    # entry_points={"console_scripts": ["kerground=kerground:cli"]},
 )
