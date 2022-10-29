@@ -33,6 +33,13 @@ from app.dependencies import ker
 @ker.register(ker.MODE.THREAD, max_retries=3)
 def convert_files(event: list[str]):
     pass # some heavy duty stuff here
+
+# or just go with the defaults
+
+@ker.register
+def convert_files_v2(event: list[str]):
+    pass # some heavy duty stuff here
+
 ```
 #### **The `event` must be json serializable!** 
 
