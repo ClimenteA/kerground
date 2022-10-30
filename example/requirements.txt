@@ -3,3 +3,4 @@ python-multipart
 uvicorn
 honcho
 peewee
+bottle

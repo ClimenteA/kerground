@@ -1,3 +1,3 @@
 web: python web.py
-worker1: python worker.py
-worker2: python worker.py
+worker: python worker.py
+dashboard: python worker_dashboard.py
