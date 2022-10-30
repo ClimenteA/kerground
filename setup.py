@@ -11,7 +11,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="kerground",
-    version="0.1.0",
+    version="0.1.1",
     description="Stupid simple background worker based on python.",
     url="https://github.com/ClimenteA/kerground",
     author="Climente Alin",

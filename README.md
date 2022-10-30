@@ -73,26 +73,24 @@ if __name__ == "__main__":
 
 You can check the `example` folder which was used for tests.
 
-## Multiple workers?
 
-Just start multiple instances of `worker.py`. You can use [`honcho`](https://honcho.readthedocs.io/en/latest/) to make this easier.
+# Dashboard
+
+Kerground offers a small dashboard in which you can see the functions registered and their status count in a table.
+To see the dashboard create a new file `worker_dashboard.py` and add the following code:
+```py
+#./worker_dashboard.py
+from app.dependencies import ker
+
+if __name__ == "__main__":
+    ker.dashboard()
 ```
-# Procfile
-web: python main.py
-worker1: python worker.py
-worker2: python worker.py
-etc
-```
-Then:
-```
-honcho start
-```
+Go to `http://localhost:3030/` to see the dashboard.
+
+The data used to fill the tasks table from the dashboard is taken by calling function: `ker.get_current_tasks()`.
+You are free to create a custom endpoint in your choosed web framework and call that func.
+More features will be added soon. 
+
 
 **Submit any questions/issues you have! Fell free to fork it and improve it!**
-
-
-# Roadmap 
-
-- Kerground Dashboard - to show running/pending/failed/done tasks, retrigger running a failed task + maybe some nice vizualizations;
-- Benchmarks with Celery;
 
