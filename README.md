@@ -73,7 +73,7 @@ if __name__ == "__main__":
 
 You can check the `example` folder which was used for tests.
 
-Difference with and without kerground:
+Difference with and without kerground (On 8 cores 16GB Ram):
 ![](./loadtestkerground.gif)
 
 # Dashboard
