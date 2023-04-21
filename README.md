@@ -74,7 +74,7 @@ if __name__ == "__main__":
 You can check the `example` folder which was used for tests.
 
 Difference with and without kerground:
-
+[!](./loadtestkerground.gif)
 
 # Dashboard
 
